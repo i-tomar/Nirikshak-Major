@@ -14,10 +14,8 @@ Endpoint:
 """
 
 import json
-from typing import Any, Dict, List, Optional
-import duckdb
-from fastapi import APIRouter, HTTPException, Query, status
 
+import duckdb
 from app.ml.analyzer import get_analysis_paths, has_analysis_data
 from app.pipeline.storage import get_parquet_paths, has_normalized_data
 from app.schemas.investigation import (
@@ -29,6 +27,7 @@ from app.schemas.investigation import (
     WalletInvestigationResponse,
     WalletSummary,
 )
+from fastapi import APIRouter, HTTPException, Query, status
 
 router = APIRouter()
 
@@ -39,12 +38,22 @@ router = APIRouter()
     status_code=status.HTTP_200_OK,
     summary="Get comprehensive Bitcoin wallet investigation dossier",
     description="Retrieves telemetry, risk scores, Why-Flagged evidence, UTXO transaction flow, "
-                "correlated network observations, and graph neighborhood summary for a specific wallet."
+    "correlated network observations, and graph neighborhood summary for a specific wallet.",
 )
 def get_wallet_investigation(
     wallet_id: str,
-    tx_limit: int = Query(50, ge=1, le=200, description="Maximum transaction records to return (ordered newest first)"),
-    net_limit: int = Query(50, ge=1, le=200, description="Maximum network observations to return (ordered newest first)"),
+    tx_limit: int = Query(
+        50,
+        ge=1,
+        le=200,
+        description="Maximum transaction records to return (ordered newest first)",
+    ),
+    net_limit: int = Query(
+        50,
+        ge=1,
+        le=200,
+        description="Maximum network observations to return (ordered newest first)",
+    ),
 ):
     """
     Retrieve an explainable investigation dossier for the specified Bitcoin wallet address.
@@ -54,16 +63,20 @@ def get_wallet_investigation(
         clean_id = clean_id[7:].strip()
 
     # Basic identifier validation
-    if not clean_id or len(clean_id) < 5 or any(c in clean_id for c in [" ", "\t", "\n", ";", "'", '"', "\0"]):
+    if (
+        not clean_id
+        or len(clean_id) < 5
+        or any(c in clean_id for c in [" ", "\t", "\n", ";", "'", '"', "\0"])
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid wallet identifier format: '{wallet_id}'."
+            detail=f"Invalid wallet identifier format: '{wallet_id}'.",
         )
 
     if not has_normalized_data():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No normalized Bitcoin dataset available. Ingest data first."
+            detail="No normalized Bitcoin dataset available. Ingest data first.",
         )
 
     paths = get_parquet_paths()
@@ -77,18 +90,18 @@ def get_wallet_investigation(
     try:
         w_df = con.execute(
             "SELECT * FROM read_parquet(?) WHERE wallet_address = ? LIMIT 1",
-            [wallets_path, clean_id]
+            [wallets_path, clean_id],
         ).fetch_df()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail="Internal server error",
         ) from e
 
     if w_df.empty:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Wallet '{clean_id}' was not found in the transaction records."
+            detail=f"Wallet '{clean_id}' was not found in the transaction records.",
         )
 
     w_row = w_df.iloc[0].to_dict()
@@ -104,15 +117,15 @@ def get_wallet_investigation(
     )
 
     # 2. Risk & Why-Flagged evidence from investigative leads
-    risk_dossier: Optional[RiskDossier] = None
-    evidence_items: List[EvidenceItem] = []
+    risk_dossier: RiskDossier | None = None
+    evidence_items: list[EvidenceItem] = []
 
     if has_analysis_data():
         try:
             leads_path = get_analysis_paths()["leads"].resolve().as_posix()
             lead_df = con.execute(
                 "SELECT * FROM read_parquet(?) WHERE wallet_address = ? LIMIT 1",
-                [leads_path, clean_id]
+                [leads_path, clean_id],
             ).fetch_df()
 
             if not lead_df.empty:
@@ -128,12 +141,18 @@ def get_wallet_investigation(
                     score=round(float(l_row.get("risk_score", 0.0)), 2),
                     level=risk_level_val,
                     anomaly_score=round(float(l_row.get("anomaly_score", 0.0)), 4),
-                    anomaly_percentile=round(float(l_row.get("anomaly_percentile", 0.0)), 2),
+                    anomaly_percentile=round(
+                        float(l_row.get("anomaly_percentile", 0.0)), 2
+                    ),
                     is_outlier=bool(l_row.get("is_outlier", False)),
                     subscores=subscores,
                 )
 
-                reasons_raw = json.loads(l_row.get("reasons_json", "[]")) if l_row.get("reasons_json") else []
+                reasons_raw = (
+                    json.loads(l_row.get("reasons_json", "[]"))
+                    if l_row.get("reasons_json")
+                    else []
+                )
                 for r in reasons_raw:
                     cat = r.get("category", "activity")
                     if risk_level_val == "CRITICAL" and cat in ["anomaly", "network"]:
@@ -145,14 +164,18 @@ def get_wallet_investigation(
                     else:
                         sev = "LOW"
 
-                    evidence_items.append(EvidenceItem(
-                        category=cat,
-                        message=r.get("explanation", f"Deviating {cat} pattern detected."),
-                        severity=sev,
-                        metric=r.get("value"),
-                        baseline=r.get("baseline"),
-                        feature=r.get("feature"),
-                    ))
+                    evidence_items.append(
+                        EvidenceItem(
+                            category=cat,
+                            message=r.get(
+                                "explanation", f"Deviating {cat} pattern detected."
+                            ),
+                            severity=sev,
+                            metric=r.get("value"),
+                            baseline=r.get("baseline"),
+                            feature=r.get("feature"),
+                        )
+                    )
         except Exception:
             # If leads table is unreadable, proceed gracefully without failing the entire dossier
             risk_dossier = None
@@ -160,13 +183,15 @@ def get_wallet_investigation(
 
     # 3. Query transactions involving this wallet
     try:
-        total_tx_count = int(con.execute(
-            """
+        total_tx_count = int(
+            con.execute(
+                """
             SELECT COUNT(*) FROM read_parquet(?)
             WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             """,
-            [tx_path, clean_id, clean_id]
-        ).fetchone()[0])
+                [tx_path, clean_id, clean_id],
+            ).fetchone()[0]
+        )
 
         tx_query = """
             SELECT txid, timestamp, input_addresses, output_addresses, input_amounts, output_amounts,
@@ -176,47 +201,73 @@ def get_wallet_investigation(
             ORDER BY timestamp DESC
             LIMIT ?
         """
-        tx_df = con.execute(tx_query, [tx_path, clean_id, clean_id, tx_limit]).fetch_df()
+        tx_df = con.execute(
+            tx_query, [tx_path, clean_id, clean_id, tx_limit]
+        ).fetch_df()
 
-        transactions: List[InvestigationTransaction] = []
+        transactions: list[InvestigationTransaction] = []
         for _, tr in tx_df.iterrows():
-            in_addrs = [str(a) for a in tr["input_addresses"]] if tr["input_addresses"] is not None else []
-            out_addrs = [str(a) for a in tr["output_addresses"]] if tr["output_addresses"] is not None else []
-            in_amts = [round(float(a), 8) for a in tr["input_amounts"]] if tr["input_amounts"] is not None else []
-            out_amts = [round(float(a), 8) for a in tr["output_amounts"]] if tr["output_amounts"] is not None else []
+            in_addrs = (
+                [str(a) for a in tr["input_addresses"]]
+                if tr["input_addresses"] is not None
+                else []
+            )
+            out_addrs = (
+                [str(a) for a in tr["output_addresses"]]
+                if tr["output_addresses"] is not None
+                else []
+            )
+            in_amts = (
+                [round(float(a), 8) for a in tr["input_amounts"]]
+                if tr["input_amounts"] is not None
+                else []
+            )
+            out_amts = (
+                [round(float(a), 8) for a in tr["output_amounts"]]
+                if tr["output_amounts"] is not None
+                else []
+            )
 
-            transactions.append(InvestigationTransaction(
-                txid=str(tr["txid"]),
-                timestamp=str(tr["timestamp"]),
-                input_addresses=in_addrs,
-                output_addresses=out_addrs,
-                input_amounts=in_amts,
-                output_amounts=out_amts,
-                fee=round(float(tr.get("fee", 0.0)), 8),
-                script_type=str(tr.get("script_type", "unknown")),
-                total_input_amount=round(float(tr["total_input_amount"]), 8) if tr.get("total_input_amount") is not None else None,
-                total_output_amount=round(float(tr["total_output_amount"]), 8) if tr.get("total_output_amount") is not None else None,
-                is_input=(clean_id in in_addrs),
-                is_output=(clean_id in out_addrs),
-            ))
+            transactions.append(
+                InvestigationTransaction(
+                    txid=str(tr["txid"]),
+                    timestamp=str(tr["timestamp"]),
+                    input_addresses=in_addrs,
+                    output_addresses=out_addrs,
+                    input_amounts=in_amts,
+                    output_amounts=out_amts,
+                    fee=round(float(tr.get("fee", 0.0)), 8),
+                    script_type=str(tr.get("script_type", "unknown")),
+                    total_input_amount=round(float(tr["total_input_amount"]), 8)
+                    if tr.get("total_input_amount") is not None
+                    else None,
+                    total_output_amount=round(float(tr["total_output_amount"]), 8)
+                    if tr.get("total_output_amount") is not None
+                    else None,
+                    is_input=(clean_id in in_addrs),
+                    is_output=(clean_id in out_addrs),
+                )
+            )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail="Internal server error",
         ) from e
 
     # 4. Query correlated network observations for transactions involving this wallet
     try:
-        total_net_count = int(con.execute(
-            """
+        total_net_count = int(
+            con.execute(
+                """
             SELECT COUNT(*) FROM read_parquet(?)
             WHERE txid IN (
                 SELECT txid FROM read_parquet(?)
                 WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             )
             """,
-            [net_path, tx_path, clean_id, clean_id]
-        ).fetchone()[0])
+                [net_path, tx_path, clean_id, clean_id],
+            ).fetchone()[0]
+        )
 
         net_query = """
             SELECT txid, timestamp, src_ip, dst_ip, src_port, dst_port, geo_country, ASN
@@ -228,29 +279,34 @@ def get_wallet_investigation(
             ORDER BY timestamp DESC
             LIMIT ?
         """
-        net_df = con.execute(net_query, [net_path, tx_path, clean_id, clean_id, net_limit]).fetch_df()
+        net_df = con.execute(
+            net_query, [net_path, tx_path, clean_id, clean_id, net_limit]
+        ).fetch_df()
 
-        network_obs: List[InvestigationNetworkObservation] = []
+        network_obs: list[InvestigationNetworkObservation] = []
         for _, nr in net_df.iterrows():
-            network_obs.append(InvestigationNetworkObservation(
-                txid=str(nr["txid"]),
-                timestamp=str(nr["timestamp"]),
-                src_ip=str(nr["src_ip"]),
-                dst_ip=str(nr["dst_ip"]),
-                src_port=int(nr["src_port"]),
-                dst_port=int(nr["dst_port"]),
-                geo_country=str(nr["geo_country"]),
-                asn=str(nr["ASN"]),
-            ))
+            network_obs.append(
+                InvestigationNetworkObservation(
+                    txid=str(nr["txid"]),
+                    timestamp=str(nr["timestamp"]),
+                    src_ip=str(nr["src_ip"]),
+                    dst_ip=str(nr["dst_ip"]),
+                    src_port=int(nr["src_port"]),
+                    dst_port=int(nr["dst_port"]),
+                    geo_country=str(nr["geo_country"]),
+                    asn=str(nr["ASN"]),
+                )
+            )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail="Internal server error",
         ) from e
 
     # 5. Graph topology summary
     try:
         from app.graph.builder import load_or_build_graph
+
         graph = load_or_build_graph()
         node_id = f"wallet:{clean_id}"
 

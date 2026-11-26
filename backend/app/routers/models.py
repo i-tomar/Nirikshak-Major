@@ -5,7 +5,8 @@ Serves metrics, feature importance rankings, and confusion matrices for the ML e
 
 import json
 from pathlib import Path
-from typing import Dict, List, Literal
+from typing import Literal
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -22,7 +23,7 @@ class ModelFeatureImportance(BaseModel):
 
 
 class ModelFeaturesResponse(BaseModel):
-    features: List[ModelFeatureImportance]
+    features: list[ModelFeatureImportance]
 
 
 class ModelMetricsResponse(BaseModel):
@@ -39,9 +40,9 @@ class ModelMetricsResponse(BaseModel):
     total_samples: int
     evaluated_at: str
     evaluation_methodology: str
-    class_distribution: Dict[str, int]
-    confusion_matrix: List[List[int]]
-    confusion_matrix_labels: List[str]
+    class_distribution: dict[str, int]
+    confusion_matrix: list[list[int]]
+    confusion_matrix_labels: list[str]
 
 
 class PendingEvaluation(BaseModel):

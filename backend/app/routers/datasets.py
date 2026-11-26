@@ -1,10 +1,9 @@
-from datetime import datetime, timezone
 import json
 import logging
-from pathlib import Path
 import time
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from app.graph.builder import (
     build_investigation_graph,
@@ -35,20 +34,30 @@ from app.schemas.transaction import (
     DatasetUploadResponse,
     StorageInfo,
 )
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 router = APIRouter()
 
-MANIFEST_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "active_dataset.json"
-CANONICAL_DEMO_CSV = Path(__file__).resolve().parent.parent.parent / "data" / "demo" / "nirikshak_demo_15k.csv"
-LEGACY_BENCHMARK_CSV = Path(__file__).resolve().parent.parent.parent / "data" / "demo_transactions.csv"
+MANIFEST_FILE = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "active_dataset.json"
+)
+CANONICAL_DEMO_CSV = (
+    Path(__file__).resolve().parent.parent.parent
+    / "data"
+    / "demo"
+    / "nirikshak_demo_15k.csv"
+)
+LEGACY_BENCHMARK_CSV = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "demo_transactions.csv"
+)
 
 
 def process_dataset_end_to_end(
-    valid_records: List[BitcoinTransactionRecord],
+    valid_records: list[BitcoinTransactionRecord],
     filename: str,
     detected_format: str,
     total_rows: int,
-    rejected_records: List[Dict[str, Any]],
+    rejected_records: list[dict[str, Any]],
     validation_status: str,
     val_ms: float,
 ) -> DatasetUploadResponse:
@@ -62,10 +71,10 @@ def process_dataset_end_to_end(
     """
 
     summary = calculate_dataset_summary(valid_records) if valid_records else None
-    storage_info: Optional[StorageInfo] = None
-    stage_timings: Dict[str, Any] = {"validation": val_ms}
-    analysis_dict: Optional[Dict[str, Any]] = None
-    graph_dict: Optional[Dict[str, Any]] = None
+    storage_info: StorageInfo | None = None
+    stage_timings: dict[str, Any] = {"validation": val_ms}
+    analysis_dict: dict[str, Any] | None = None
+    graph_dict: dict[str, Any] | None = None
     pipeline_status = "SUCCESS"
 
     if valid_records and validation_status != "FAILED":
@@ -140,13 +149,15 @@ def process_dataset_end_to_end(
                 "graph_nodes": graph_dict["total_nodes"],
                 "graph_edges": graph_dict["total_edges"],
                 "stage_timings_ms": stage_timings,
-                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                "analyzed_at": datetime.now(UTC).isoformat(),
             }
             try:
                 with open(MANIFEST_FILE, "w", encoding="utf-8") as mf:
                     json.dump(manifest_payload, mf, indent=2)
             except Exception:
-                logging.getLogger(__name__).warning("Could not persist dataset manifest")
+                logging.getLogger(__name__).warning(
+                    "Could not persist dataset manifest"
+                )
 
         except Exception:
             pipeline_status = "FAILED"
@@ -170,9 +181,13 @@ def process_dataset_end_to_end(
     )
 
 
-@router.post("/upload", response_model=DatasetUploadResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/upload", response_model=DatasetUploadResponse, status_code=status.HTTP_200_OK
+)
 async def upload_dataset(
-    file: UploadFile = File(..., description="Bitcoin transaction dataset (.csv or .json)")
+    file: UploadFile = File(
+        ..., description="Bitcoin transaction dataset (.csv or .json)"
+    ),
 ):
     """
     Ingest, validate, normalize, analyze, cluster, and compile the graph end-to-end
@@ -181,7 +196,7 @@ async def upload_dataset(
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file must have a filename."
+            detail="Uploaded file must have a filename.",
         )
 
     filename = file.filename
@@ -194,7 +209,7 @@ async def upload_dataset(
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format '{suffix}'. Only .csv and .json datasets are supported."
+            detail=f"Unsupported file format '{suffix}'. Only .csv and .json datasets are supported.",
         )
 
     try:
@@ -202,13 +217,12 @@ async def upload_dataset(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to read uploaded file"
+            detail="Failed to read uploaded file",
         ) from e
 
     if not raw_bytes or len(raw_bytes.strip()) == 0:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file is empty."
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
         )
 
     try:
@@ -219,7 +233,7 @@ async def upload_dataset(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unable to decode file content as UTF-8/text"
+                detail="Unable to decode file content as UTF-8/text",
             ) from e
 
     t_val = time.perf_counter()
@@ -230,13 +244,12 @@ async def upload_dataset(
             valid_records, rejected_records = parse_json_content(content)
     except json.JSONDecodeError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Malformed JSON syntax"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed JSON syntax"
         ) from err
     except Exception as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to parse dataset file"
+            detail="Failed to parse dataset file",
         ) from err
     val_ms = round((time.perf_counter() - t_val) * 1000.0, 2)
 
@@ -244,7 +257,7 @@ async def upload_dataset(
     if total_rows == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dataset contains zero records or an empty table."
+            detail="Dataset contains zero records or an empty table.",
         )
 
     if len(rejected_records) == 0:
@@ -265,17 +278,23 @@ async def upload_dataset(
     )
 
 
-@router.post("/load-benchmark", response_model=DatasetUploadResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/load-benchmark",
+    response_model=DatasetUploadResponse,
+    status_code=status.HTTP_200_OK,
+)
 def load_benchmark_dataset():
     """
     Load the official SIH26146 demonstration dataset (15,000 transactions) directly
     from backend/data/demo/nirikshak_demo_15k.csv and run the exact same end-to-end processing pipeline.
     """
-    target_csv = CANONICAL_DEMO_CSV if CANONICAL_DEMO_CSV.exists() else LEGACY_BENCHMARK_CSV
+    target_csv = (
+        CANONICAL_DEMO_CSV if CANONICAL_DEMO_CSV.exists() else LEGACY_BENCHMARK_CSV
+    )
     if not target_csv.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Demonstration dataset not found on disk at {CANONICAL_DEMO_CSV} or {LEGACY_BENCHMARK_CSV}."
+            detail=f"Demonstration dataset not found on disk at {CANONICAL_DEMO_CSV} or {LEGACY_BENCHMARK_CSV}.",
         )
 
     t_val = time.perf_counter()
@@ -297,7 +316,9 @@ def load_benchmark_dataset():
     )
 
 
-@router.get("/active", response_model=ActiveDatasetStatus, status_code=status.HTTP_200_OK)
+@router.get(
+    "/active", response_model=ActiveDatasetStatus, status_code=status.HTTP_200_OK
+)
 def get_active_dataset_status():
     """
     Retrieve current system-wide active dataset state and stage execution timings.
@@ -319,7 +340,11 @@ def get_active_dataset_status():
                 analysis_summary = json.load(sf)
 
             graph_stats = get_graph_stats() if has_graph_data() else {}
-            fallback_filename = CANONICAL_DEMO_CSV.name if CANONICAL_DEMO_CSV.exists() else "nirikshak_demo_15k.csv"
+            fallback_filename = (
+                CANONICAL_DEMO_CSV.name
+                if CANONICAL_DEMO_CSV.exists()
+                else "nirikshak_demo_15k.csv"
+            )
             return ActiveDatasetStatus(
                 has_dataset=True,
                 filename=fallback_filename,

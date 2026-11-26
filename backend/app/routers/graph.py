@@ -9,8 +9,7 @@ Endpoints:
 - GET /api/graph/{entity_id}/subgraph: Bounded N-hop neighborhood subgraph for visualization.
 """
 
-from typing import Any, Dict, Optional
-from fastapi import APIRouter, HTTPException, Query, status
+from typing import Any
 
 from app.graph.builder import get_graph_stats, load_or_build_graph
 from app.graph.queries import (
@@ -25,11 +24,12 @@ from app.schemas.graph import (
     GraphStatsResponse,
     GraphSubgraphResponse,
 )
+from fastapi import APIRouter, HTTPException, Query, status
 
 router = APIRouter()
 
 
-@router.get("/demo-root", response_model=Dict[str, Any], status_code=status.HTTP_200_OK)
+@router.get("/demo-root", response_model=dict[str, Any], status_code=status.HTTP_200_OK)
 def get_demo_root():
     """
     Return a deterministic initial root entity from the active investigation graph
@@ -37,8 +37,9 @@ def get_demo_root():
     """
     try:
         graph = load_or_build_graph()
-        from app.ml.analyzer import get_analysis_paths, has_analysis_data
         import polars as pl
+        from app.ml.analyzer import get_analysis_paths, has_analysis_data
+
         if has_analysis_data():
             leads_path = get_analysis_paths()["leads"]
             if leads_path.exists():
@@ -52,10 +53,17 @@ def get_demo_root():
                             "entity_id": node_id,
                             "type": "wallet",
                             "label": addr,
-                            "risk_score": node_data.get("risk_score", round(float(row.get("risk_score", 0)), 2)),
-                            "risk_level": node_data.get("risk_level", str(row.get("risk_level", "LOW"))),
+                            "risk_score": node_data.get(
+                                "risk_score", round(float(row.get("risk_score", 0)), 2)
+                            ),
+                            "risk_level": node_data.get(
+                                "risk_level", str(row.get("risk_level", "LOW"))
+                            ),
                             "confidence": 0.95,
-                            "transaction_count": node_data.get("transaction_count", int(row.get("transaction_count", 0))),
+                            "transaction_count": node_data.get(
+                                "transaction_count",
+                                int(row.get("transaction_count", 0)),
+                            ),
                             "total_degree": graph.degree(node_id),
                         }
 
@@ -107,10 +115,18 @@ def graph_statistics():
         ) from e
 
 
-@router.get("/search", response_model=GraphSearchResponse, status_code=status.HTTP_200_OK)
+@router.get(
+    "/search", response_model=GraphSearchResponse, status_code=status.HTTP_200_OK
+)
 def search_graph(
-    q: str = Query(..., min_length=1, description="Search term (wallet address, txid, IP, ASN, country)"),
-    limit: int = Query(20, ge=1, le=100, description="Maximum number of search results to return"),
+    q: str = Query(
+        ...,
+        min_length=1,
+        description="Search term (wallet address, txid, IP, ASN, country)",
+    ),
+    limit: int = Query(
+        20, ge=1, le=100, description="Maximum number of search results to return"
+    ),
 ):
     """
     Search graph nodes matching a wallet, transaction ID, IP address, or ASN.
@@ -133,8 +149,12 @@ def search_graph(
 
 @router.get("/path", response_model=GraphPathResponse, status_code=status.HTTP_200_OK)
 def graph_shortest_path(
-    source: str = Query(..., min_length=1, description="Origin entity ID or raw identifier"),
-    target: str = Query(..., min_length=1, description="Destination entity ID or raw identifier"),
+    source: str = Query(
+        ..., min_length=1, description="Origin entity ID or raw identifier"
+    ),
+    target: str = Query(
+        ..., min_length=1, description="Destination entity ID or raw identifier"
+    ),
     max_hops: int = Query(10, description="Maximum traversal depth (1 to 20)"),
 ):
     """
@@ -158,7 +178,9 @@ def graph_shortest_path(
 
     try:
         graph = load_or_build_graph()
-        result = find_shortest_path(graph, source_id=clean_source, target_id=clean_target, max_hops=max_hops)
+        result = find_shortest_path(
+            graph, source_id=clean_source, target_id=clean_target, max_hops=max_hops
+        )
         return result
     except FileNotFoundError as fnf:
         raise HTTPException(
@@ -172,13 +194,29 @@ def graph_shortest_path(
         ) from e
 
 
-@router.get("/{entity_id}/subgraph", response_model=GraphSubgraphResponse, status_code=status.HTTP_200_OK)
+@router.get(
+    "/{entity_id}/subgraph",
+    response_model=GraphSubgraphResponse,
+    status_code=status.HTTP_200_OK,
+)
 def entity_subgraph(
     entity_id: str,
-    hops: int = Query(1, ge=1, le=3, description="Neighborhood traversal depth (1 to 3 hops)"),
-    max_nodes: int = Query(100, ge=5, le=500, description="Maximum nodes cap to prevent visual overload"),
-    min_risk_score: Optional[float] = Query(None, ge=0.0, le=100.0, description="Filter neighboring wallets by minimum risk score"),
-    risk_level: Optional[str] = Query(None, description="Filter neighboring wallets by tier: 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'"),
+    hops: int = Query(
+        1, ge=1, le=3, description="Neighborhood traversal depth (1 to 3 hops)"
+    ),
+    max_nodes: int = Query(
+        100, ge=5, le=500, description="Maximum nodes cap to prevent visual overload"
+    ),
+    min_risk_score: float | None = Query(
+        None,
+        ge=0.0,
+        le=100.0,
+        description="Filter neighboring wallets by minimum risk score",
+    ),
+    risk_level: str | None = Query(
+        None,
+        description="Filter neighboring wallets by tier: 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'",
+    ),
 ):
     """
     Extract a bounded N-hop neighborhood subgraph centered around a specific entity.
@@ -214,7 +252,9 @@ def entity_subgraph(
         ) from e
 
 
-@router.get("/{entity_id}", response_model=Dict[str, Any], status_code=status.HTTP_200_OK)
+@router.get(
+    "/{entity_id}", response_model=dict[str, Any], status_code=status.HTTP_200_OK
+)
 def entity_detail(entity_id: str):
     """
     Inspect a single graph entity's comprehensive attributes, connectivity metrics,

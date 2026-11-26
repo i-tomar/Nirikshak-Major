@@ -8,44 +8,45 @@ Constructs a multi-layer NetworkX directed graph from normalized analytical tabl
 - Edges: input, output, counterparty heuristic, and network_observation relationships.
 """
 
-import logging
-
-from collections import defaultdict
-from datetime import datetime, timezone
 import json
+import logging
+from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-import duckdb
+from typing import Any
+
 import networkx as nx
 import polars as pl
-
 from app.pipeline.storage import (
-    DEFAULT_STORAGE_DIR,
     get_parquet_paths,
-    get_storage_dir,
     has_normalized_data,
 )
 
-DEFAULT_ANALYSIS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "analysis"
+DEFAULT_ANALYSIS_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "analysis"
+)
 
 
-def get_analysis_dir(custom_dir: Optional[Union[str, Path]] = None) -> Path:
+def get_analysis_dir(custom_dir: str | Path | None = None) -> Path:
     """Return analysis directory Path."""
     return Path(custom_dir) if custom_dir else DEFAULT_ANALYSIS_DIR
 
 
-def has_analysis_data(analysis_dir: Optional[Union[str, Path]] = None) -> bool:
+def has_analysis_data(analysis_dir: str | Path | None = None) -> bool:
     """Check if compiled Phase 4 analysis results exist on disk."""
     adir = get_analysis_dir(analysis_dir)
     leads_path = adir / "investigative_leads.parquet"
     summary_path = adir / "analysis_summary.json"
-    return leads_path.exists() and leads_path.stat().st_size > 0 and summary_path.exists()
+    return (
+        leads_path.exists() and leads_path.stat().st_size > 0 and summary_path.exists()
+    )
+
 
 DEFAULT_GRAPH_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "graph"
 
 # In-memory singleton cache to prevent rebuilding/reloading graph on every API call
-_MEMORY_GRAPH_CACHE: Optional[nx.DiGraph] = None
-_MEMORY_STATS_CACHE: Optional[Dict[str, Any]] = None
+_MEMORY_GRAPH_CACHE: nx.DiGraph | None = None
+_MEMORY_STATS_CACHE: dict[str, Any] | None = None
 
 
 def invalidate_graph_cache() -> None:
@@ -55,14 +56,14 @@ def invalidate_graph_cache() -> None:
     _MEMORY_STATS_CACHE = None
 
 
-def get_graph_dir(custom_dir: Optional[Union[str, Path]] = None) -> Path:
+def get_graph_dir(custom_dir: str | Path | None = None) -> Path:
     """Return graph directory Path, creating it if it does not exist."""
     target_dir = Path(custom_dir) if custom_dir else DEFAULT_GRAPH_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
     return target_dir
 
 
-def get_graph_storage_paths(graph_dir: Optional[Union[str, Path]] = None) -> Dict[str, Path]:
+def get_graph_storage_paths(graph_dir: str | Path | None = None) -> dict[str, Path]:
     """Return paths to serialized graph representations and metadata."""
     gdir = get_graph_dir(graph_dir)
     return {
@@ -72,25 +73,33 @@ def get_graph_storage_paths(graph_dir: Optional[Union[str, Path]] = None) -> Dic
     }
 
 
-def has_graph_data(graph_dir: Optional[Union[str, Path]] = None) -> bool:
+def has_graph_data(graph_dir: str | Path | None = None) -> bool:
     """Check if compiled graph exists on disk."""
     paths = get_graph_storage_paths(graph_dir)
-    return paths["json"].exists() and paths["stats"].exists() and paths["json"].stat().st_size > 0
+    return (
+        paths["json"].exists()
+        and paths["stats"].exists()
+        and paths["json"].stat().st_size > 0
+    )
 
 
 def build_investigation_graph(
-    storage_dir: Optional[Union[str, Path]] = None,
-    analysis_dir: Optional[Union[str, Path]] = None,
-    graph_dir: Optional[Union[str, Path]] = None,
+    storage_dir: str | Path | None = None,
+    analysis_dir: str | Path | None = None,
+    graph_dir: str | Path | None = None,
     force_rebuild: bool = False,
-) -> Tuple[nx.DiGraph, Dict[str, Any]]:
+) -> tuple[nx.DiGraph, dict[str, Any]]:
     """
     Build the multi-layer Bitcoin investigation graph deterministically
     from local Parquet tables and optional Phase 4 ML analysis.
     """
     global _MEMORY_GRAPH_CACHE, _MEMORY_STATS_CACHE
 
-    if not force_rebuild and _MEMORY_GRAPH_CACHE is not None and _MEMORY_STATS_CACHE is not None:
+    if (
+        not force_rebuild
+        and _MEMORY_GRAPH_CACHE is not None
+        and _MEMORY_STATS_CACHE is not None
+    ):
         return _MEMORY_GRAPH_CACHE, _MEMORY_STATS_CACHE
 
     if not has_normalized_data(storage_dir):
@@ -104,7 +113,7 @@ def build_investigation_graph(
     df_net = pl.read_parquet(paths_norm["network_observations"])
 
     # Load Phase 4 analysis data if present (investigative_leads.parquet)
-    analysis_by_wallet: Dict[str, Dict[str, Any]] = {}
+    analysis_by_wallet: dict[str, dict[str, Any]] = {}
     if has_analysis_data(analysis_dir):
         try:
             leads_path = get_analysis_dir(analysis_dir) / "investigative_leads.parquet"
@@ -159,9 +168,9 @@ def build_investigation_graph(
     # -------------------------------------------------------------
     # 2. TRANSACTION NODES & WALLET <-> TX EDGES & COUNTERPARTY EDGES
     # -------------------------------------------------------------
-    seen_ips: Set[str] = set()
-    seen_asns: Set[str] = set()
-    seen_countries: Set[str] = set()
+    seen_ips: set[str] = set()
+    seen_asns: set[str] = set()
+    seen_countries: set[str] = set()
 
     for row in df_txs.sort("txid").iter_rows(named=True):
         txid = str(row["txid"])
@@ -192,7 +201,9 @@ def build_investigation_graph(
         for addr, amt in zip(in_addrs, in_amts):
             w_id = f"wallet:{addr}"
             if not G.has_node(w_id):
-                G.add_node(w_id, id=w_id, type="wallet", label=addr, wallet_address=addr)
+                G.add_node(
+                    w_id, id=w_id, type="wallet", label=addr, wallet_address=addr
+                )
             G.add_edge(
                 w_id,
                 tx_node_id,
@@ -206,7 +217,9 @@ def build_investigation_graph(
         for addr, amt in zip(out_addrs, out_amts):
             w_id = f"wallet:{addr}"
             if not G.has_node(w_id):
-                G.add_node(w_id, id=w_id, type="wallet", label=addr, wallet_address=addr)
+                G.add_node(
+                    w_id, id=w_id, type="wallet", label=addr, wallet_address=addr
+                )
             G.add_edge(
                 tx_node_id,
                 w_id,
@@ -324,11 +337,11 @@ def build_investigation_graph(
     # -------------------------------------------------------------
     # 4. COMPUTE STRUCTURAL METRICS & SERIALIZE
     # -------------------------------------------------------------
-    node_type_counts: Dict[str, int] = defaultdict(int)
+    node_type_counts: dict[str, int] = defaultdict(int)
     for _, data in G.nodes(data=True):
         node_type_counts[data.get("type", "unknown")] += 1
 
-    edge_type_counts: Dict[str, int] = defaultdict(int)
+    edge_type_counts: dict[str, int] = defaultdict(int)
     for _, _, data in G.edges(data=True):
         edge_type_counts[data.get("type", "unknown")] += 1
 
@@ -352,14 +365,18 @@ def build_investigation_graph(
         "network_observation_edges": edge_type_counts["network_observation"],
         "density": density,
         "is_deterministic": True,
-        "built_at": datetime.now(timezone.utc).isoformat(),
+        "built_at": datetime.now(UTC).isoformat(),
         "source_dataset_records": len(df_txs),
     }
 
     # Save to local storage
     g_paths = get_graph_storage_paths(graph_dir)
     with open(g_paths["json"], "w", encoding="utf-8") as f:
-        json.dump(nx.adjacency_data(G, attrs={"id": "_node", "key": "_key"}), f, allow_nan=False)
+        json.dump(
+            nx.adjacency_data(G, attrs={"id": "_node", "key": "_key"}),
+            f,
+            allow_nan=False,
+        )
 
     with open(g_paths["stats"], "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2)
@@ -384,9 +401,9 @@ def build_investigation_graph(
 
 
 def load_or_build_graph(
-    storage_dir: Optional[Union[str, Path]] = None,
-    analysis_dir: Optional[Union[str, Path]] = None,
-    graph_dir: Optional[Union[str, Path]] = None,
+    storage_dir: str | Path | None = None,
+    analysis_dir: str | Path | None = None,
+    graph_dir: str | Path | None = None,
 ) -> nx.DiGraph:
     """Load cached in-memory graph, load from local disk, or build on demand."""
     global _MEMORY_GRAPH_CACHE, _MEMORY_STATS_CACHE
@@ -398,7 +415,9 @@ def load_or_build_graph(
     if paths["json"].exists() and paths["stats"].exists():
         try:
             with open(paths["json"], encoding="utf-8") as f:
-                G = nx.adjacency_graph(json.load(f), attrs={"id": "_node", "key": "_key"})
+                G = nx.adjacency_graph(
+                    json.load(f), attrs={"id": "_node", "key": "_key"}
+                )
             with open(paths["stats"], "r", encoding="utf-8") as f:
                 stats = json.load(f)
             _MEMORY_GRAPH_CACHE = G
@@ -416,7 +435,7 @@ def load_or_build_graph(
     return G
 
 
-def get_graph_stats(graph_dir: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+def get_graph_stats(graph_dir: str | Path | None = None) -> dict[str, Any]:
     """Retrieve precompiled graph statistics."""
     global _MEMORY_STATS_CACHE
     if _MEMORY_STATS_CACHE is not None:
@@ -430,7 +449,9 @@ def get_graph_stats(graph_dir: Optional[Union[str, Path]] = None) -> Dict[str, A
             _MEMORY_STATS_CACHE = stats
             return stats
         except Exception:
-            logging.getLogger(__name__).warning("Rebuilding unreadable graph statistics")
+            logging.getLogger(__name__).warning(
+                "Rebuilding unreadable graph statistics"
+            )
 
     _, stats = build_investigation_graph(graph_dir=graph_dir)
     return stats

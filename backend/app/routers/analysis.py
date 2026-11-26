@@ -6,7 +6,6 @@ Endpoints:
 - GET /api/analysis/status: Retrieve current analysis status and summary metrics.
 """
 
-from fastapi import APIRouter, HTTPException, status
 from app.ml.analyzer import (
     AnalysisStatusResponse,
     AnalysisSummary,
@@ -14,6 +13,7 @@ from app.ml.analyzer import (
     run_full_analysis,
 )
 from app.pipeline.storage import has_normalized_data
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ def run_analysis():
     if not has_normalized_data():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No normalized dataset available. Please upload a valid dataset before running analysis."
+            detail="No normalized dataset available. Please upload a valid dataset before running analysis.",
         )
 
     try:
@@ -36,11 +36,13 @@ def run_analysis():
     except Exception as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail="Internal server error",
         ) from err
 
 
-@router.get("/status", response_model=AnalysisStatusResponse, status_code=status.HTTP_200_OK)
+@router.get(
+    "/status", response_model=AnalysisStatusResponse, status_code=status.HTTP_200_OK
+)
 def get_status():
     """
     Retrieve current ML analysis readiness and summary metrics.

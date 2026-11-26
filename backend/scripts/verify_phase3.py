@@ -23,13 +23,11 @@ Verifies:
 15. Regression: Phase 1 & Phase 2 verification scripts pass.
 """
 
-import os
-import shutil
 import csv
 import json
-from decimal import Decimal
 import sys
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 
 # Add backend directory to sys.path so app modules can be imported
@@ -37,15 +35,11 @@ backend_dir = Path(__file__).resolve().parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-import duckdb
 import polars as pl
-from fastapi.testclient import TestClient
 from app.main import app
 from app.pipeline.loader import load_transactions
 from app.pipeline.normalizer import normalize_dataset
 from app.pipeline.storage import (
-    DEFAULT_STORAGE_DIR,
-    get_dataset_analytics_summary,
     get_network_observation_count,
     get_parquet_paths,
     get_time_range,
@@ -58,6 +52,7 @@ from app.pipeline.storage import (
     has_normalized_data,
     save_normalized_tables,
 )
+from fastapi.testclient import TestClient
 
 
 def verify_phase3():
@@ -71,8 +66,11 @@ def verify_phase3():
     with csv_file.open(encoding="utf-8", newline="") as source:
         source_rows = list(csv.DictReader(source))
     expected_volume = sum(
-        (Decimal(value) for row in source_rows
-         for value in json.loads(row["output_amounts"], parse_float=Decimal)),
+        (
+            Decimal(value)
+            for row in source_rows
+            for value in json.loads(row["output_amounts"], parse_float=Decimal)
+        ),
         Decimal(0),
     )
     timestamps = [row["timestamp"] for row in source_rows]
@@ -94,7 +92,9 @@ def verify_phase3():
     print(f"   -> network_observations table shape : {df_net.shape}")
 
     assert df_tx.shape == (5000, 18), f"Unexpected tx shape: {df_tx.shape}"
-    assert df_wallets.shape == (4915, 8), f"Unexpected wallets shape: {df_wallets.shape}"
+    assert df_wallets.shape == (4915, 8), (
+        f"Unexpected wallets shape: {df_wallets.shape}"
+    )
     assert df_net.shape == (5000, 8), f"Unexpected net shape: {df_net.shape}"
     print("   [PASS] Polars normalization produced correct table dimensions.")
 
@@ -149,8 +149,12 @@ def verify_phase3():
         print(f"   -> DuckDB unique IPs            : {ip_count}")
         print(f"   -> DuckDB total volume          : {tot_vol} BTC")
         print(f"   -> DuckDB time span             : {t_start} -> {t_end}")
-        print(f"   -> Top active wallet            : {top_wallets_tx[0]['wallet_address']} ({top_wallets_tx[0]['transaction_count']} txs)")
-        print(f"   -> Top volume wallet            : {top_wallets_vol[0]['wallet_address']} ({top_wallets_vol[0]['total_volume']} BTC)")
+        print(
+            f"   -> Top active wallet            : {top_wallets_tx[0]['wallet_address']} ({top_wallets_tx[0]['transaction_count']} txs)"
+        )
+        print(
+            f"   -> Top volume wallet            : {top_wallets_vol[0]['wallet_address']} ({top_wallets_vol[0]['total_volume']} BTC)"
+        )
 
         assert tx_count == 5000
         assert wallet_count == 4915
@@ -180,7 +184,9 @@ def verify_phase3():
     assert body["storage"]["table_counts"]["wallets"] == 4915
     assert body["storage"]["table_counts"]["network_observations"] == 5000
     print(f"   -> Upload response storage: {body['storage']['table_counts']}")
-    print("   [PASS] POST /api/datasets/upload integrates normalization and Parquet storage.")
+    print(
+        "   [PASS] POST /api/datasets/upload integrates normalization and Parquet storage."
+    )
 
     # 6. Integration: GET /api/stats
     print("\n[Step 6] Testing GET /api/stats endpoint...")
@@ -193,7 +199,9 @@ def verify_phase3():
     print(f"   -> Network Obs        : {stats_body['network_observations']}")
     print(f"   -> Unique IPs         : {stats_body['unique_ips']}")
     print(f"   -> Total BTC          : {stats_body['total_btc']}")
-    print(f"   -> Time Span          : {stats_body['time_range']['start']} to {stats_body['time_range']['end']}")
+    print(
+        f"   -> Time Span          : {stats_body['time_range']['start']} to {stats_body['time_range']['end']}"
+    )
     print(f"   -> Top Active Wallets : {len(stats_body['top_wallets_by_activity'])}")
     print(f"   -> Top Volume Wallets : {len(stats_body['top_wallets_by_volume'])}")
 
@@ -209,7 +217,7 @@ def verify_phase3():
     print("\n[Step 7] Verifying invalid dataset does NOT write normalized tables...")
     with tempfile.TemporaryDirectory() as tmp_empty_dir:
         bad_csv = "timestamp,src_ip,dst_ip,src_port,dst_port,txid,input_addresses,output_addresses,input_amounts,output_amounts,fee,script_type,geo_country,ASN\n"
-        bad_csv += "2026-09-01T00:00:00Z,1.1.1.1,2.2.2.2,50000,8333,0000000000000000000000000000000000000000000000000000000000000001,[\"a\"],[\"b\"],[1.0],[9.0],0.0001,P2WPKH,US,AS13335\n"
+        bad_csv += '2026-09-01T00:00:00Z,1.1.1.1,2.2.2.2,50000,8333,0000000000000000000000000000000000000000000000000000000000000001,["a"],["b"],[1.0],[9.0],0.0001,P2WPKH,US,AS13335\n'
         resp_bad = client.post(
             "/api/datasets/upload",
             files={"file": ("bad.csv", bad_csv.encode("utf-8"), "text/csv")},

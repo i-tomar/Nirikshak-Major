@@ -9,22 +9,25 @@ over the normalized analytical tables:
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
+
 import duckdb
 import polars as pl
 
 # Path to normalized storage directory inside backend/data/normalized
-DEFAULT_STORAGE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "normalized"
+DEFAULT_STORAGE_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "normalized"
+)
 
 
-def get_storage_dir(custom_dir: Optional[Union[str, Path]] = None) -> Path:
+def get_storage_dir(custom_dir: str | Path | None = None) -> Path:
     """Return storage directory Path, creating it if it does not exist."""
     target_dir = Path(custom_dir) if custom_dir else DEFAULT_STORAGE_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
     return target_dir
 
 
-def get_parquet_paths(storage_dir: Optional[Union[str, Path]] = None) -> Dict[str, Path]:
+def get_parquet_paths(storage_dir: str | Path | None = None) -> dict[str, Path]:
     """Get file paths for all three core analytical Parquet tables."""
     sdir = get_storage_dir(storage_dir)
     return {
@@ -35,9 +38,9 @@ def get_parquet_paths(storage_dir: Optional[Union[str, Path]] = None) -> Dict[st
 
 
 def save_normalized_tables(
-    tables: Dict[str, pl.DataFrame],
-    storage_dir: Optional[Union[str, Path]] = None,
-) -> Dict[str, str]:
+    tables: dict[str, pl.DataFrame],
+    storage_dir: str | Path | None = None,
+) -> dict[str, str]:
     """
     Save normalized Polars DataFrames as Parquet files in local storage.
     Overwrites previous version cleanly.
@@ -52,7 +55,7 @@ def save_normalized_tables(
     return written
 
 
-def has_normalized_data(storage_dir: Optional[Union[str, Path]] = None) -> bool:
+def has_normalized_data(storage_dir: str | Path | None = None) -> bool:
     """Check if all required Parquet tables exist on disk and have content."""
     paths = get_parquet_paths(storage_dir)
     for p in paths.values():
@@ -61,7 +64,9 @@ def has_normalized_data(storage_dir: Optional[Union[str, Path]] = None) -> bool:
     return True
 
 
-def get_duckdb_connection(storage_dir: Optional[Union[str, Path]] = None) -> duckdb.DuckDBPyConnection:
+def get_duckdb_connection(
+    storage_dir: str | Path | None = None,
+) -> duckdb.DuckDBPyConnection:
     """
     Create an in-memory DuckDB connection with views pointing directly
     to the local Parquet files.
@@ -79,25 +84,25 @@ def get_duckdb_connection(storage_dir: Optional[Union[str, Path]] = None) -> duc
     return con
 
 
-def get_transaction_count(storage_dir: Optional[Union[str, Path]] = None) -> int:
+def get_transaction_count(storage_dir: str | Path | None = None) -> int:
     con = get_duckdb_connection(storage_dir)
     res = con.execute("SELECT COUNT(*) FROM transactions").fetchone()
     return int(res[0]) if res else 0
 
 
-def get_wallet_count(storage_dir: Optional[Union[str, Path]] = None) -> int:
+def get_wallet_count(storage_dir: str | Path | None = None) -> int:
     con = get_duckdb_connection(storage_dir)
     res = con.execute("SELECT COUNT(*) FROM wallets").fetchone()
     return int(res[0]) if res else 0
 
 
-def get_network_observation_count(storage_dir: Optional[Union[str, Path]] = None) -> int:
+def get_network_observation_count(storage_dir: str | Path | None = None) -> int:
     con = get_duckdb_connection(storage_dir)
     res = con.execute("SELECT COUNT(*) FROM network_observations").fetchone()
     return int(res[0]) if res else 0
 
 
-def get_unique_ip_count(storage_dir: Optional[Union[str, Path]] = None) -> int:
+def get_unique_ip_count(storage_dir: str | Path | None = None) -> int:
     con = get_duckdb_connection(storage_dir)
     res = con.execute("""
         SELECT COUNT(DISTINCT ip) FROM (
@@ -109,15 +114,21 @@ def get_unique_ip_count(storage_dir: Optional[Union[str, Path]] = None) -> int:
     return int(res[0]) if res else 0
 
 
-def get_total_transaction_volume(storage_dir: Optional[Union[str, Path]] = None) -> float:
+def get_total_transaction_volume(storage_dir: str | Path | None = None) -> float:
     con = get_duckdb_connection(storage_dir)
-    res = con.execute("SELECT ROUND(SUM(total_output_amount), 8) FROM transactions").fetchone()
+    res = con.execute(
+        "SELECT ROUND(SUM(total_output_amount), 8) FROM transactions"
+    ).fetchone()
     return float(res[0]) if res and res[0] is not None else 0.0
 
 
-def get_time_range(storage_dir: Optional[Union[str, Path]] = None) -> Tuple[Optional[str], Optional[str]]:
+def get_time_range(
+    storage_dir: str | Path | None = None,
+) -> tuple[str | None, str | None]:
     con = get_duckdb_connection(storage_dir)
-    res = con.execute("SELECT MIN(timestamp), MAX(timestamp) FROM transactions").fetchone()
+    res = con.execute(
+        "SELECT MIN(timestamp), MAX(timestamp) FROM transactions"
+    ).fetchone()
     if res and res[0] is not None and res[1] is not None:
         return str(res[0]), str(res[1])
     return None, None
@@ -125,10 +136,11 @@ def get_time_range(storage_dir: Optional[Union[str, Path]] = None) -> Tuple[Opti
 
 def get_top_wallets_by_tx_count(
     limit: int = 10,
-    storage_dir: Optional[Union[str, Path]] = None,
-) -> List[Dict[str, Any]]:
+    storage_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
     con = get_duckdb_connection(storage_dir)
-    df = con.execute("""
+    df = con.execute(
+        """
         SELECT 
             wallet_address, 
             transaction_count, 
@@ -139,16 +151,19 @@ def get_top_wallets_by_tx_count(
         FROM wallets 
         ORDER BY transaction_count DESC, total_output_amount DESC 
         LIMIT ?
-    """, [limit]).fetch_df()
+    """,
+        [limit],
+    ).fetch_df()
     return df.to_dict(orient="records")
 
 
 def get_top_wallets_by_volume(
     limit: int = 10,
-    storage_dir: Optional[Union[str, Path]] = None,
-) -> List[Dict[str, Any]]:
+    storage_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
     con = get_duckdb_connection(storage_dir)
-    df = con.execute("""
+    df = con.execute(
+        """
         SELECT 
             wallet_address, 
             transaction_count, 
@@ -158,13 +173,15 @@ def get_top_wallets_by_volume(
         FROM wallets 
         ORDER BY (total_input_amount + total_output_amount) DESC 
         LIMIT ?
-    """, [limit]).fetch_df()
+    """,
+        [limit],
+    ).fetch_df()
     return df.to_dict(orient="records")
 
 
 def get_dataset_analytics_summary(
-    storage_dir: Optional[Union[str, Path]] = None,
-) -> Dict[str, Any]:
+    storage_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """
     High-level analytics summary calculated via DuckDB queries over the Parquet store.
     """
@@ -194,6 +211,10 @@ def get_dataset_analytics_summary(
             "start": t_start,
             "end": t_end,
         },
-        "top_wallets_by_activity": get_top_wallets_by_tx_count(limit=5, storage_dir=storage_dir),
-        "top_wallets_by_volume": get_top_wallets_by_volume(limit=5, storage_dir=storage_dir),
+        "top_wallets_by_activity": get_top_wallets_by_tx_count(
+            limit=5, storage_dir=storage_dir
+        ),
+        "top_wallets_by_volume": get_top_wallets_by_volume(
+            limit=5, storage_dir=storage_dir
+        ),
     }

@@ -7,10 +7,8 @@ Endpoints:
 """
 
 import json
-from typing import Any, Dict, List, Optional
-import duckdb
-from fastapi import APIRouter, HTTPException, Query, status
 
+import duckdb
 from app.ml.analyzer import get_analysis_paths, has_analysis_data
 from app.ml.evidence import EvidenceReason
 from app.schemas.analysis import (
@@ -18,15 +16,22 @@ from app.schemas.analysis import (
     AlertItem,
     AlertsListResponse,
 )
+from fastapi import APIRouter, HTTPException, Query, status
 
 router = APIRouter()
 
 
 @router.get("", response_model=AlertsListResponse, status_code=status.HTTP_200_OK)
 def list_alerts(
-    limit: int = Query(50, ge=1, le=500, description="Maximum number of leads to return"),
-    min_risk_score: float = Query(0.0, ge=0.0, le=100.0, description="Minimum risk score threshold"),
-    risk_level: Optional[str] = Query(None, description="Filter by risk tier: CRITICAL, HIGH, MEDIUM, LOW"),
+    limit: int = Query(
+        50, ge=1, le=500, description="Maximum number of leads to return"
+    ),
+    min_risk_score: float = Query(
+        0.0, ge=0.0, le=100.0, description="Minimum risk score threshold"
+    ),
+    risk_level: str | None = Query(
+        None, description="Filter by risk tier: CRITICAL, HIGH, MEDIUM, LOW"
+    ),
 ):
     """
     Retrieve ranked investigative leads sorted deterministically by risk score and anomaly score.
@@ -43,7 +48,9 @@ def list_alerts(
     tier = risk_level.strip().upper() if risk_level else None
     query_args = [leads_path, min_risk_score, tier, tier]
     with duckdb.connect() as con:
-        total_leads = con.execute("SELECT COUNT(*) FROM read_parquet(?)", [leads_path]).fetchone()[0]
+        total_leads = con.execute(
+            "SELECT COUNT(*) FROM read_parquet(?)", [leads_path]
+        ).fetchone()[0]
         filtered_count = con.execute(
             """SELECT COUNT(*) FROM read_parquet(?)
                WHERE risk_score >= ? AND (? IS NULL OR upper(risk_level) = ?)""",
@@ -60,25 +67,31 @@ def list_alerts(
             [*query_args, limit],
         ).fetch_df()
 
-    items: List[AlertItem] = []
+    items: list[AlertItem] = []
     for _, r in df_results.iterrows():
         reasons_list = json.loads(r["reasons_json"]) if r["reasons_json"] else []
-        primary_reason = reasons_list[0]["explanation"] if reasons_list else f"Entity flagged with {r['risk_level']} risk priority."
+        primary_reason = (
+            reasons_list[0]["explanation"]
+            if reasons_list
+            else f"Entity flagged with {r['risk_level']} risk priority."
+        )
 
-        items.append(AlertItem(
-            alert_id=str(r["alert_id"]),
-            rank=int(r["rank"]),
-            wallet_address=str(r["wallet_address"]),
-            risk_score=float(r["risk_score"]),
-            risk_level=str(r["risk_level"]),
-            anomaly_score=float(r["anomaly_score"]),
-            anomaly_percentile=float(r["anomaly_percentile"]),
-            transaction_count=int(r["transaction_count"]),
-            total_volume=round(float(r["total_volume"]), 4),
-            unique_ip_count=int(r["unique_ip_count"]),
-            unique_country_count=int(r["unique_country_count"]),
-            primary_reason=primary_reason,
-        ))
+        items.append(
+            AlertItem(
+                alert_id=str(r["alert_id"]),
+                rank=int(r["rank"]),
+                wallet_address=str(r["wallet_address"]),
+                risk_score=float(r["risk_score"]),
+                risk_level=str(r["risk_level"]),
+                anomaly_score=float(r["anomaly_score"]),
+                anomaly_percentile=float(r["anomaly_percentile"]),
+                transaction_count=int(r["transaction_count"]),
+                total_volume=round(float(r["total_volume"]), 4),
+                unique_ip_count=int(r["unique_ip_count"]),
+                unique_country_count=int(r["unique_country_count"]),
+                primary_reason=primary_reason,
+            )
+        )
 
     return AlertsListResponse(
         total_leads=total_leads,
@@ -88,7 +101,9 @@ def list_alerts(
     )
 
 
-@router.get("/{alert_id}", response_model=AlertDetailResponse, status_code=status.HTTP_200_OK)
+@router.get(
+    "/{alert_id}", response_model=AlertDetailResponse, status_code=status.HTTP_200_OK
+)
 def get_alert_detail(alert_id: str):
     """
     Retrieve full investigative dossier for a specific lead by alert ID or wallet address.
@@ -96,7 +111,7 @@ def get_alert_detail(alert_id: str):
     if not has_analysis_data():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No analysis results available. Run /api/analysis/run first."
+            detail="No analysis results available. Run /api/analysis/run first.",
         )
 
     leads_path = get_analysis_paths()["leads"].resolve().as_posix()
@@ -109,8 +124,7 @@ def get_alert_detail(alert_id: str):
         ).fetch_df()
     if df.empty:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Investigative lead not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Investigative lead not found"
         )
 
     r = df.iloc[0].to_dict()
