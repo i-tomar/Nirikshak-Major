@@ -508,7 +508,7 @@ export const GraphPathInvestigator: React.FC<GraphPathInvestigatorProps> = ({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-1.5 p-3 bg-black/40 border border-white/5 rounded-2xl">
-                                {activePathResult.path_sequence.map((nodeId: any, idx: any) => {
+                                {activePathResult.path_sequence.map((nodeId, idx) => {
                                     const isSource = idx === 0;
                                     const isTarget = idx === activePathResult.path_sequence.length - 1;
                                     const matchedNode = activePathResult.nodes.find(n => n.id === nodeId);
@@ -566,7 +566,7 @@ export const GraphPathInvestigator: React.FC<GraphPathInvestigatorProps> = ({
                             </div>
 
                             <div className="space-y-2.5">
-                                {activePathResult.steps.map((step: any, idx: any) => {
+                                {activePathResult.steps.map((step, idx) => {
                                     const isExpanded = expandedStepIndex === idx;
                                     const fromNode = activePathResult.nodes.find(n => n.id === step.from_node);
                                     const toNode = activePathResult.nodes.find(n => n.id === step.to_node);
@@ -669,7 +669,7 @@ export const GraphPathInvestigator: React.FC<GraphPathInvestigatorProps> = ({
                             <div className="flex flex-wrap gap-2">
                                 {activePathResult.nodes
                                     .filter(n => n.type === 'wallet')
-                                    .map((wNode: any) => {
+                                    .map((wNode) => {
                                         const cleanAddr = (wNode.label || wNode.id).replace(/^wallet:/, '');
                                         return (
                                             <button

@@ -426,17 +426,17 @@ export default function WalletInvestigation({ walletId, onBack, onExploreInGraph
 
             {/* NAVIGATION TABS FOR DOSSIER SECTIONS */}
             <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
-                {[
+                {([
                     { id: 'evidence', label: 'Why Flagged (Evidence)', count: dossier.evidence.length },
                     { id: 'path', label: 'Connected Path', count: '7 Nodes' },
                     { id: 'transactions', label: 'UTXO Transaction Flow', count: dossier.total_transactions },
                     { id: 'network', label: 'Network Observations', count: dossier.total_network_observations },
                     { id: 'timeline', label: 'Investigation Timeline', count: '4 Events' },
                     { id: 'graph', label: 'Graph Neighborhood', count: dossier.graph_summary.direct_neighbor_count },
-                ].map((t) => (
+                ] as const).map((t) => (
                     <button
                         key={t.id}
-                        onClick={() => setActiveTabSection(t.id as any)}
+                        onClick={() => setActiveTabSection(t.id)}
                         className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
                             activeTabSection === t.id
                                 ? 'bg-[#002A24] text-white shadow-md'

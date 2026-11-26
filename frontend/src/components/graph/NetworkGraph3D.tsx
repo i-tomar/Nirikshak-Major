@@ -19,7 +19,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ForceGraph3D, { ForceGraphMethods } from "react-force-graph-3d";
+import ForceGraph3D, { ForceGraphMethods, NodeObject, LinkObject } from "react-force-graph-3d";
 import * as THREE from "three";
 import "./NetworkGraph3D.css";
 
@@ -278,13 +278,15 @@ function buildNodeObject(node: GraphNode, selectedId?: string, rootId?: string, 
   // Cyber-intelligence focus mode: Dim non-neighborhood nodes to 0.45 (never invisible)
   if (selectedId && !isSelected && selectedNeighbors && !selectedNeighbors.has(node.id)) {
     obj.traverse((child) => {
-      if ((child as any).material) {
-        const mat = (child as any).material;
+      if (!("material" in child)) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of materials) {
+        if (!(mat instanceof THREE.Material)) continue;
         mat.transparent = true;
         // Clamp minimum opacity to 0.45 so nodes remain identifiable in focus mode
         const currentOpacity = mat.opacity ?? 1;
         mat.opacity = Math.max(currentOpacity * 0.52, 0.45);
-        if (mat.emissiveIntensity !== undefined) {
+        if (mat instanceof THREE.MeshStandardMaterial) {
           mat.emissiveIntensity = Math.max(mat.emissiveIntensity * 0.35, 0.08);
         }
       }
@@ -340,7 +342,7 @@ export default function NetworkGraph3D({
   onHopsChange,
   onInvestigate,
 }: NetworkGraph3DProps) {
-  const fgRef = useRef<ForceGraphMethods>();
+  const fgRef = useRef<ForceGraphMethods<NodeObject<GraphNode>, LinkObject<GraphNode, GraphLink>>>();
   const [internalHops, setInternalHops] = useState<1 | 2 | 3>(3);
   const hops = controlledHops ?? internalHops;
   const setHops = (h: 1 | 2 | 3) => {
@@ -382,7 +384,7 @@ export default function NetworkGraph3D({
               try {
                 const linkForce = fgRef.current.d3Force?.('link');
                 if (linkForce && typeof linkForce.distance === 'function') {
-                  linkForce.distance((l: any) => {
+                  linkForce.distance((l: GraphLink) => {
                     const kind = l.kind || '';
                     // Shorter distances = tighter spider-web topology
                     if (kind === 'flow') return 32;
@@ -400,8 +402,8 @@ export default function NetworkGraph3D({
 
                 // Centering force to keep graph compact around origin
                 const centerForce = fgRef.current.d3Force?.('center');
-                if (centerForce && typeof (centerForce as any).strength === 'function') {
-                  (centerForce as any).strength(0.05);
+                if (centerForce && typeof centerForce.strength === 'function') {
+                  centerForce.strength(0.05);
                 }
 
                 // Fit view with 40px padding — graph fills ~70-80% of canvas
@@ -436,8 +438,8 @@ export default function NetworkGraph3D({
     return {
       nodes: graphData.nodes.filter((n) => visibleIds.has(n.id)),
       links: graphData.links.filter((l) => {
-        const s = typeof l.source === "object" ? (l.source as any).id : l.source;
-        const t = typeof l.target === "object" ? (l.target as any).id : l.target;
+        const s = typeof l.source === "object" ? l.source.id : l.source;
+        const t = typeof l.target === "object" ? l.target.id : l.target;
         return visibleIds.has(s) && visibleIds.has(t);
       }),
     };
@@ -475,8 +477,8 @@ export default function NetworkGraph3D({
   const neighborMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
     filteredData.links.forEach((l) => {
-      const s = typeof l.source === "object" ? (l.source as any).id : String(l.source);
-      const t = typeof l.target === "object" ? (l.target as any).id : String(l.target);
+      const s = typeof l.source === "object" ? l.source.id : String(l.source);
+      const t = typeof l.target === "object" ? l.target.id : String(l.target);
       if (!map.has(s)) map.set(s, new Set());
       if (!map.has(t)) map.set(t, new Set());
       map.get(s)!.add(t);
@@ -492,14 +494,15 @@ export default function NetworkGraph3D({
 
   const [isPaused, setIsPaused] = useState(false);
 
-  const onNodeClick = useCallback((node: any) => {
+  const onNodeClick = useCallback((node: GraphNode) => {
     setSelected(node as GraphNode);
     const distance = 75;
-    const hyp = Math.hypot(node.x, node.y, node.z || 1);
+    const { x = 0, y = 0, z = 0 } = node;
+    const hyp = Math.hypot(x, y, z) || 1;
     const distRatio = 1 + distance / hyp;
     fgRef.current?.cameraPosition(
-      { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-      node,
+      { x: x * distRatio, y: y * distRatio, z: z * distRatio },
+      { x, y, z },
       800
     );
   }, []);
@@ -525,7 +528,7 @@ export default function NetworkGraph3D({
       if (!isPaused) {
         const scene = fgRef.current?.scene?.();
         scene?.traverse((obj) => {
-          const spin = (obj as any).userData?.spin;
+          const spin = obj.userData?.spin;
           if (spin?.shell) spin.shell.rotation.y -= 0.005;
           if (spin?.ring) spin.ring.rotation.z += 0.004;
         });
@@ -630,17 +633,17 @@ export default function NetworkGraph3D({
       )}
 
       {/* 3D FORCE GRAPH CANVAS */}
-      <ForceGraph3D
-        ref={fgRef as any}
-        graphData={filteredData as any}
+      <ForceGraph3D<GraphNode, GraphLink>
+        ref={fgRef}
+        graphData={filteredData}
         backgroundColor="#000403"
         nodeId="id"
         linkSource="source"
         linkTarget="target"
-        nodeThreeObject={(node: any) => buildNodeObject(node as GraphNode, selected?.id, rootEntityId, selected ? selectedNeighbors : undefined)}
+        nodeThreeObject={(node: GraphNode) => buildNodeObject(node as GraphNode, selected?.id, rootEntityId, selected ? selectedNeighbors : undefined)}
         nodeThreeObjectExtend={false}
-        linkColor={(l: any) => linkColor(l as GraphLink)}
-        linkWidth={(l: any) => {
+        linkColor={(l: GraphLink) => linkColor(l as GraphLink)}
+        linkWidth={(l: GraphLink) => {
           const lk = (l as GraphLink);
           if (lk.kind === "wallet-risk") return 2.8;
           if (lk.kind === "flow") return 1.8;
@@ -649,7 +652,7 @@ export default function NetworkGraph3D({
         }}
         linkOpacity={0.72}
         // Particles only on high-risk and network observation links — avoids visual noise
-        linkDirectionalParticles={(l: any) => {
+        linkDirectionalParticles={(l: GraphLink) => {
           const lk = (l as GraphLink);
           if (lk.kind === "wallet-risk") return 3;
           if (lk.kind === "net") return 2;
@@ -657,7 +660,7 @@ export default function NetworkGraph3D({
         }}
         linkDirectionalParticleWidth={2.2}
         linkDirectionalParticleSpeed={0.004}
-        linkDirectionalParticleColor={(l: any) =>
+        linkDirectionalParticleColor={(l: GraphLink) =>
           (l as GraphLink).kind === "wallet-risk" ? "#FF3B1F" : "#2FB8FF"
         }
         onNodeClick={onNodeClick}

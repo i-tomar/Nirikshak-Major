@@ -237,7 +237,7 @@ const Dashboard = () => {
         setSelectedGraphNode(node);
     };
 
-    const loadSubgraph = async (centerEntityId: string, hops = 1, _maxNodes = 100) => {
+    const loadSubgraph = async (centerEntityId: string, hops = 1) => {
         setIsGraphLoading(true);
         setGraphError(null);
         try {
@@ -270,7 +270,7 @@ const Dashboard = () => {
             const localStats = calculateDemoGraphStats(MASTER_GRAPH.nodes, MASTER_GRAPH.links);
             setGraphStats(localStats as any);
             const targetEntityId = DEMO_ROOT_WALLET_ID;
-            await loadSubgraph(targetEntityId, graphHops || 1, 100);
+            await loadSubgraph(targetEntityId, graphHops || 1);
         } catch (err: unknown) {
             console.error('Failed to initialize investigation graph:', err);
             setGraphError('Investigation demo graph failed to initialize.');
@@ -577,7 +577,7 @@ const Dashboard = () => {
                             onExploreInGraph={(walletAddress: string) => {
                                 const canonicalId = walletAddress.startsWith('wallet:') ? walletAddress : `wallet:${walletAddress}`;
                                 setActiveCenterEntity(canonicalId);
-                                loadSubgraph(canonicalId, 1, 100);
+                                loadSubgraph(canonicalId, 1);
                                 setActiveTab('network');
                             }}
                             onSelectWallet={(walletAddress: string) => {
@@ -879,7 +879,7 @@ const Dashboard = () => {
                                                                     e.stopPropagation();
                                                                     const canonical = lead.wallet.startsWith('wallet:') ? lead.wallet : `wallet:${lead.wallet}`;
                                                                     setActiveCenterEntity(canonical);
-                                                                    loadSubgraph(canonical, 1, 100);
+                                                                    loadSubgraph(canonical, 1);
                                                                     setActiveTab('network');
                                                                 }}
                                                                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold uppercase transition-colors"
@@ -972,7 +972,7 @@ const Dashboard = () => {
                                                     onClick={() => {
                                                         setShowSearchDropdown(false);
                                                         setGraphSearchQuery('');
-                                                        loadSubgraph(res.id, 1, 100);
+                                                        loadSubgraph(res.id, 1);
                                                     }}
                                                     className="p-3 hover:bg-white/10 cursor-pointer border-b border-white/5 flex items-center justify-between transition-colors"
                                                 >
@@ -1002,7 +1002,7 @@ const Dashboard = () => {
                                                 key={h}
                                                 onClick={() => {
                                                     setGraphHops(h);
-                                                    if (activeCenterEntity) loadSubgraph(activeCenterEntity, h, 100);
+                                                    if (activeCenterEntity) loadSubgraph(activeCenterEntity, h);
                                                 }}
                                                 className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${graphHops === h ? 'bg-[#002A24] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
                                                     }`}
@@ -1027,7 +1027,7 @@ const Dashboard = () => {
                                     </button>
                                     <button
                                         onClick={() => {
-                                            if (activeCenterEntity) loadSubgraph(activeCenterEntity, graphHops, 100);
+                                            if (activeCenterEntity) loadSubgraph(activeCenterEntity, graphHops);
                                             else initializeNetworkGraph();
                                         }}
                                         title="Reload Subgraph"
@@ -1149,7 +1149,7 @@ const Dashboard = () => {
                             onExploreInGraph={(walletAddress: string) => {
                                 const canonical = walletAddress.startsWith('wallet:') ? walletAddress : `wallet:${walletAddress}`;
                                 setActiveCenterEntity(canonical);
-                                loadSubgraph(canonical, 1, 100);
+                                loadSubgraph(canonical, 1);
                                 setActiveTab('network');
                             }}
                         />
@@ -1260,7 +1260,7 @@ const Dashboard = () => {
                                                             } else {
                                                                 const canonical = row.type === 'TRANSACTION' ? `tx:${row.entityId}` : row.type === 'IP' ? `ip:${row.entityId}` : row.type === 'ASN' ? `asn:${row.entityId}` : `geo:${row.entityId}`;
                                                                 setActiveCenterEntity(canonical);
-                                                                loadSubgraph(canonical, 1, 100);
+                                                                loadSubgraph(canonical, 1);
                                                                 setActiveTab('network');
                                                             }
                                                         }}
@@ -1371,7 +1371,7 @@ const Dashboard = () => {
                                                                             e.stopPropagation();
                                                                             const canonical = row.type === 'TRANSACTION' ? `tx:${row.entityId}` : row.type === 'IP' ? `ip:${row.entityId}` : row.type === 'ASN' ? `asn:${row.entityId}` : `geo:${row.entityId}`;
                                                                             setActiveCenterEntity(canonical);
-                                                                            loadSubgraph(canonical, 1, 100);
+                                                                            loadSubgraph(canonical, 1);
                                                                             setActiveTab('network');
                                                                         }}
                                                                         className="px-2.5 py-1 bg-[#002A24] hover:bg-[#FF4F00] text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1"
@@ -1402,7 +1402,7 @@ const Dashboard = () => {
                             onExploreInGraph={(walletAddress: string) => {
                                 const canonical = walletAddress.startsWith('wallet:') ? walletAddress : `wallet:${walletAddress}`;
                                 setActiveCenterEntity(canonical);
-                                loadSubgraph(canonical, 1, 100);
+                                loadSubgraph(canonical, 1);
                                 setActiveTab('network');
                             }}
                         />
@@ -1418,7 +1418,7 @@ const Dashboard = () => {
                             onExploreInGraph={(walletAddress: string) => {
                                 const canonical = walletAddress.startsWith('wallet:') ? walletAddress : `wallet:${walletAddress}`;
                                 setActiveCenterEntity(canonical);
-                                loadSubgraph(canonical, 1, 100);
+                                loadSubgraph(canonical, 1);
                                 setActiveTab('network');
                             }}
                         />

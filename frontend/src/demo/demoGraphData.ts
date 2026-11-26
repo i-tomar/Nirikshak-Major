@@ -629,8 +629,8 @@ export async function getDemoSubgraph(rootEntityId: string, hops: number): Promi
   }
 
   const eligibleLinks = MASTER_GRAPH.links.filter((link) => {
-    const s = typeof link.source === "object" ? (link.source as any).id : link.source;
-    const t = typeof link.target === "object" ? (link.target as any).id : link.target;
+    const s = typeof link.source === "object" ? link.source.id : link.source;
+    const t = typeof link.target === "object" ? link.target.id : link.target;
     return eligibleNodeIds.has(s) && eligibleNodeIds.has(t);
   });
 
@@ -638,8 +638,8 @@ export async function getDemoSubgraph(rootEntityId: string, hops: number): Promi
   // Every visible node must belong to a connected link
   const connectedNodeIds = new Set<string>();
   eligibleLinks.forEach((l) => {
-    const s = typeof l.source === "object" ? (l.source as any).id : l.source;
-    const t = typeof l.target === "object" ? (l.target as any).id : l.target;
+    const s = typeof l.source === "object" ? l.source.id : l.source;
+    const t = typeof l.target === "object" ? l.target.id : l.target;
     connectedNodeIds.add(s);
     connectedNodeIds.add(t);
   });
