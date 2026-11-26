@@ -55,32 +55,54 @@ def main() -> None:
     elif target == "security":
         security()
     elif target == "check":
-        run(PYTHON, "-c", "from app.main import app", cwd=BACKEND)
-        run(PYTHON, "-m", "pytest", "-q", "tests", cwd=BACKEND)
-        for script in sorted((BACKEND / "scripts").glob("verify_phase*.py")):
-            run(PYTHON, script, cwd=BACKEND)
+        steps = [
+            ((PYTHON, "-c", "from app.main import app"), BACKEND),
+            ((PYTHON, "-m", "pytest", "-q", "tests"), BACKEND),
+        ]
+        steps.extend(((PYTHON, script), BACKEND)
+                     for script in sorted((BACKEND / "scripts").glob("verify_phase*.py")))
+        baseline = subprocess.check_output(
+            ["git", "log", "--format=%H", "--diff-filter=A", "--", "backend/app/main.py"],
+            cwd=ROOT, text=True,
+        ).splitlines()[-1]
         changed = subprocess.check_output(
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", "main", "--", "*.py"],
-            cwd=ROOT,
-            text=True,
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", baseline, "--", "*.py"],
+            cwd=ROOT, text=True,
         ).splitlines()
+        changed.extend(subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", "*.py"],
+            cwd=ROOT, text=True,
+        ).splitlines())
         if changed:
-            run(PYTHON, "-m", "ruff", "check", *changed)
-            run(PYTHON, "-m", "mypy", *changed)
-        security()
-        npm("run", "lint")
-        npm("run", "build")
-        run("docker", "compose", "build", "backend")
-        run(
-            "docker",
-            "compose",
-            "run",
-            "--rm",
-            "backend",
-            "python",
-            "scripts/seed_demo.py",
-        )
-        run("docker", "compose", "run", "--rm", "backend", "pytest", "-q")
+            steps.extend([
+                ((PYTHON, "-m", "ruff", "check", *changed), ROOT),
+                ((PYTHON, "-m", "mypy", "--explicit-package-bases", *[ROOT / f for f in changed]), BACKEND),
+            ])
+        steps.extend([
+            ((PYTHON, "-m", "bandit", "-r", "app"), BACKEND),
+            ((PYTHON, "-m", "pip_audit"), BACKEND),
+            (("npm", "run", "lint"), FRONTEND),
+            (("npm", "run", "build"), FRONTEND),
+            (("npm", "audit", "--omit=dev", "--audit-level=high"), FRONTEND),
+            (("docker", "compose", "build", "backend"), ROOT),
+            (("docker", "compose", "run", "--rm", "backend", "python", "scripts/seed_demo.py"), ROOT),
+            (("docker", "compose", "run", "--rm", "backend", "pytest", "-q"), ROOT),
+        ])
+        failures = []
+        try:
+            for command, directory in steps:
+                try:
+                    if command[0] == "npm":
+                        npm(*(str(arg) for arg in command[1:]))
+                    else:
+                        run(*command, cwd=directory)
+                except subprocess.CalledProcessError as exc:
+                    failures.append(command)
+                    print(f"Check failed ({exc.returncode}): {command}", flush=True)
+        finally:
+            run("docker", "compose", "stop")
+        if failures:
+            sys.exit(f"{len(failures)} checks failed")
     else:
         filename = "evaluate.py" if target == "evaluate" else "external/real_eval.py"
         path = BACKEND / "scripts" / filename

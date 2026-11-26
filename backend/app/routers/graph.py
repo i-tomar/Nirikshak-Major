@@ -82,8 +82,8 @@ def get_demo_root():
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve demo root entity: {str(e)}",
-        )
+            detail="Internal server error",
+        ) from e
 
 
 @router.get("/stats", response_model=GraphStatsResponse, status_code=status.HTTP_200_OK)
@@ -98,13 +98,13 @@ def graph_statistics():
     except FileNotFoundError as fnf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(fnf),
-        )
+            detail="Graph data not available",
+        ) from fnf
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to compile graph statistics: {str(e)}",
-        )
+            detail="Internal server error",
+        ) from e
 
 
 @router.get("/search", response_model=GraphSearchResponse, status_code=status.HTTP_200_OK)
@@ -122,13 +122,13 @@ def search_graph(
     except FileNotFoundError as fnf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(fnf),
-        )
+            detail="Graph data not available",
+        ) from fnf
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Search query failed: {str(e)}",
-        )
+            detail="Internal server error",
+        ) from e
 
 
 @router.get("/path", response_model=GraphPathResponse, status_code=status.HTTP_200_OK)
@@ -163,13 +163,13 @@ def graph_shortest_path(
     except FileNotFoundError as fnf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(fnf),
-        )
+            detail="Graph data not available",
+        ) from fnf
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Path computation failed: {str(e)}",
-        )
+            detail="Internal server error",
+        ) from e
 
 
 @router.get("/{entity_id}/subgraph", response_model=GraphSubgraphResponse, status_code=status.HTTP_200_OK)
@@ -205,13 +205,13 @@ def entity_subgraph(
     except FileNotFoundError as fnf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(fnf),
-        )
+            detail="Graph data not available",
+        ) from fnf
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Neighborhood extraction failed: {str(e)}",
-        )
+            detail="Internal server error",
+        ) from e
 
 
 @router.get("/{entity_id}", response_model=Dict[str, Any], status_code=status.HTTP_200_OK)
@@ -234,10 +234,10 @@ def entity_detail(entity_id: str):
     except FileNotFoundError as fnf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(fnf),
-        )
+            detail="Graph data not available",
+        ) from fnf
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Entity lookup failed: {str(e)}",
-        )
+            detail="Internal server error",
+        ) from e

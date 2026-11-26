@@ -63,7 +63,7 @@ def process_dataset_end_to_end(
 
     summary = calculate_dataset_summary(valid_records) if valid_records else None
     storage_info: Optional[StorageInfo] = None
-    stage_timings: Dict[str, float] = {"validation": val_ms}
+    stage_timings: Dict[str, Any] = {"validation": val_ms}
     analysis_dict: Optional[Dict[str, Any]] = None
     graph_dict: Optional[Dict[str, Any]] = None
     pipeline_status = "SUCCESS"
@@ -148,9 +148,10 @@ def process_dataset_end_to_end(
             except Exception:
                 logging.getLogger(__name__).warning("Could not persist dataset manifest")
 
-        except Exception as e:
+        except Exception:
             pipeline_status = "FAILED"
-            stage_timings["error"] = str(e)
+            logging.getLogger(__name__).exception("Dataset processing failed")
+            stage_timings["error"] = "Dataset processing failed"
 
     return DatasetUploadResponse(
         filename=filename,
@@ -201,8 +202,8 @@ async def upload_dataset(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to read uploaded file: {str(e)}"
-        )
+            detail="Failed to read uploaded file"
+        ) from e
 
     if not raw_bytes or len(raw_bytes.strip()) == 0:
         raise HTTPException(
@@ -218,8 +219,8 @@ async def upload_dataset(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unable to decode file content as UTF-8/text: {str(e)}"
-            )
+                detail="Unable to decode file content as UTF-8/text"
+            ) from e
 
     t_val = time.perf_counter()
     try:
@@ -230,13 +231,13 @@ async def upload_dataset(
     except json.JSONDecodeError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Malformed JSON syntax: {str(err)}"
-        )
+            detail="Malformed JSON syntax"
+        ) from err
     except Exception as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse dataset file: {str(err)}"
-        )
+            detail="Failed to parse dataset file"
+        ) from err
     val_ms = round((time.perf_counter() - t_val) * 1000.0, 2)
 
     total_rows = len(valid_records) + len(rejected_records)

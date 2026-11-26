@@ -82,8 +82,8 @@ def get_wallet_investigation(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error querying wallet storage: {str(e)}"
-        )
+            detail="Internal server error"
+        ) from e
 
     if w_df.empty:
         raise HTTPException(
@@ -202,8 +202,8 @@ def get_wallet_investigation(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error querying transaction records: {str(e)}"
-        )
+            detail="Internal server error"
+        ) from e
 
     # 4. Query correlated network observations for transactions involving this wallet
     try:
@@ -245,8 +245,8 @@ def get_wallet_investigation(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error querying network telemetry: {str(e)}"
-        )
+            detail="Internal server error"
+        ) from e
 
     # 5. Graph topology summary
     try:

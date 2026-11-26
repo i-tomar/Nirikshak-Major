@@ -1,5 +1,8 @@
 import logging
 import os
+from uuid import uuid4
+from starlette.exceptions import HTTPException
+from fastapi.exception_handlers import http_exception_handler
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI
@@ -62,8 +65,26 @@ def health_check():
     }
 
 
+def server_error(request: Request, exc: Exception) -> JSONResponse:
+    """Log failure details with a correlation ID and return a generic response."""
+    request_id = uuid4().hex
+    logging.getLogger(__name__).error(
+        "Server error for %s request, ID %s", request.method, request_id, exc_info=exc
+    )
+    return JSONResponse(
+        status_code=500,
+        headers={"X-Request-ID": request_id},
+        content={"detail": "Internal server error", "request_id": request_id},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_error(request: Request, exc: HTTPException):
+    if exc.status_code >= 500:
+        return server_error(request, exc)
+    return await http_exception_handler(request, exc)
+
+
 @app.exception_handler(Exception)
 async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-    """Keep internal exception details in the server log."""
-    logging.getLogger(__name__).exception("Unhandled %s request", request.method)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    return server_error(request, exc)

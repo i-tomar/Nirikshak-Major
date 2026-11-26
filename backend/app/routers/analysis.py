@@ -36,8 +36,8 @@ def run_analysis():
     except Exception as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Analysis pipeline execution failed: {str(err)}"
-        )
+            detail="Internal server error"
+        ) from err
 
 
 @router.get("/status", response_model=AnalysisStatusResponse, status_code=status.HTTP_200_OK)

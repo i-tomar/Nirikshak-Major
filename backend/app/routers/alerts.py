@@ -110,7 +110,7 @@ def get_alert_detail(alert_id: str):
     if df.empty:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Investigative lead not found for identifier: {clean_id}"
+            detail="Investigative lead not found"
         )
 
     r = df.iloc[0].to_dict()
