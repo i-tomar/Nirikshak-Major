@@ -8,25 +8,26 @@
 
 **Install:** Python 3.11, Node 20+, Git, **Docker Desktop** (Linux containers), and Codex (CLI or IDE extension). In Docker Desktop → Settings → Resources, allow about 10–12 GB RAM (or create `C:\Users\<you>\.wslconfig` with `[wsl2]` and `memory=12GB`, then run `wsl --shutdown`). Keep the project path short (`D:\NirikshakM`) to avoid Windows long-path problems.
 
-**Folder layout:** your datasets are in `D:\NirikshakM`, next to the repo. Run this in PowerShell from the repo folder:
+**Folder layout:** the repo root is `D:\NirikshakM`. Place the downloaded datasets there before moving them into the external data folders. Run this in PowerShell from the repo folder:
 
 ```powershell
-cd D:\NirikshakM\Nirikshakk-main
+cd D:\NirikshakM
 git init -b main
 git config core.autocrlf false
 Set-Content .gitattributes "* text=auto eol=lf"
 Add-Content .gitignore "`n# real datasets, secrets, generated output - never commit`nbackend/data/external/`nbackend/data/analysis/`n*.mmdb`n.env`n*.key`nsecrets/"
 
-# create dataset folders and copy the real data in
-mkdir backend\data\external\elliptic, backend\data\external\bitcoinheist, backend\data\external\babd13, backend\data\geoip -Force
-Copy-Item ..\elliptic_bitcoin_dataset\* backend\data\external\elliptic\ -Recurse
-Copy-Item ..\BitcoinHeistData.csv backend\data\external\bitcoinheist\
-# BABD-13: unzip the Kaggle download and copy its CSV file(s) into backend\data\external\babd13\
+# create dataset folders and move the real data in
+mkdir backend\data\external\elliptic, backend\data\external\bitcoinheist, backend\data\geoip -Force
+Get-ChildItem -LiteralPath .\elliptic_bitcoin_dataset -Force | Move-Item -Destination .\backend\data\external\elliptic
+Move-Item -LiteralPath .\BitcoinHeistData.csv -Destination .\backend\data\external\bitcoinheist
 
 # add the two instruction files, then the first commit
 mkdir docs -Force
-# copy AGENTS.md to the repo root and PHASES.md to docs\ (from the docs you downloaded)
-git add -A
+# Place AGENTS.md at the repo root and PHASES.md in docs\.
+# Verify .gitignore, then stage the project source and docs explicitly.
+git status --short
+# Inspect staged paths and sizes before committing.
 git commit -m "baseline: repo + AGENTS.md + PHASES.md"
 git status   # must say: nothing to commit, working tree clean
 ```
@@ -74,7 +75,7 @@ Red gate ⇒ stay on the phase branch, no merge, no tag, and write the problem i
 | 1 | `phase/1-data-layer` | CSV/JSON/XML streaming ingest, GeoIP, generator, safe XML/uploads | 4–6 | MUST |
 | 2 | `phase/2-correlation` | Cross-layer correlation with typed edges | 3–4 | MUST |
 | 3 | `phase/3-detection-ml` | Features, clustering, detectors, models, propagation | 6–8 | MUST |
-| 4 | `phase/4-real-data` | Elliptic, BitcoinHeist and BABD-13 adapters and benchmarks | 5–7 | MUST |
+| 4 | `phase/4-real-data` | Elliptic and BitcoinHeist adapters and benchmarks | 5–7 | MUST |
 | 5 | `phase/5-explainability` | SHAP, evidence ledger, sufficiency | 4–5 | MUST |
 | 6 | `phase/6-sparse-engine` | Transaction DNA, bounded expansion, counterfactual | 6–8 | MUST |
 | 7 | `phase/7-evaluation` | Computed metrics, baselines, adversarial, scale | 4–5 | MUST |
@@ -152,15 +153,14 @@ Auth basics start in Phase 0 and the full audit is Phase 8, early on purpose, so
 
 **Goal:** prove the ML approach on real public labels. These models are benchmarks, not wired into the wallet alert pipeline.
 
-- [ ] For **each** dataset in `backend/data/external/` (Elliptic, BitcoinHeist, BABD-13) write `docs/data_audit/<dataset>.md` first: files, columns, dtypes, rows, label counts, time coverage. Derive mappings from the audit only
+- [ ] For **each** dataset in `backend/data/external/` (Elliptic, BitcoinHeist) write `docs/data_audit/<dataset>.md` first: files, columns, dtypes, rows, label counts, time coverage. Derive mappings from the audit only
 - [ ] **Elliptic:** time-step split (train ≤ step 34, test 35–49); `unknown` excluded from training and metrics; XGBoost vs a simple baseline; PR-AUC, illicit precision/recall/F1, Precision@K, per-time-step performance
 - [ ] **BitcoinHeist:** binary (`white` vs ransomware) and per family; split by year; imbalance handling; SHAP on the real model; per-family recall; chunked read of the 230 MB file
-- [ ] **BABD-13 (required):** binary illicit/licit and 13-class; time-aware split if timestamps exist, else stratified with leakage notes; per-class precision/recall; SHAP summary
 - [ ] Optional simulated network overlay on real transactions, flagged `simulated=true`, source `real_plus_simulated_network`
 - [ ] `real_eval_<dataset>.json`, `docs/real_data_results.md`, `GET /api/model/real-data`
 - [ ] Tests on tiny fixtures that mimic each dataset’s real format (never commit the real files)
 
-**Gate:** `.\tasks.ps1 real-eval` regenerates all three results from `external/`; reports state plainly what real-data scores do and do not mean; `git ls-files backend/data/external` prints nothing.
+**Gate:** `.\tasks.ps1 real-eval` regenerates Elliptic and BitcoinHeist results from `external/`; reports state plainly what real-data scores do and do not mean; `git ls-files backend/data/external` prints nothing.
 
 ---
 
@@ -219,7 +219,7 @@ Auth basics start in Phase 0 and the full audit is Phase 8, early on purpose, so
 - [ ] Split `Dashboard.tsx` and `WalletInvestigation.tsx`; import wizard with quarantine report
 - [ ] Alerts with filters/pagination; **alert detail** (SHAP waterfall, three evidence panels, sufficiency badge, why prioritised, counterfactual, next action, blind spots, provenance)
 - [ ] Cytoscape link analysis: bounded subgraph, node cap, expand on click, edge-type filter, time slider, colour by evidence type
-- [ ] Clusters, patterns, model analytics with synthetic and real-data (Elliptic, BitcoinHeist, BABD-13) in separate labelled tables
+- [ ] Clusters, patterns, model analytics with synthetic and real-data (Elliptic, BitcoinHeist) in separate labelled tables
 - [ ] Loading/empty/error states, virtualised tables; no `dangerouslySetInnerHTML`
 
 **Gate:** delete the demo files and the full UI works on a freshly ingested dataset; lint, build and smoke tests pass.

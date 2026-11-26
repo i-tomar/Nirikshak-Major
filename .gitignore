@@ -59,3 +59,6 @@ secrets/
 /*.pdf
 /Phases.md
 /NIRIKSHAK*Codex Prompt*.md
+.venv/
+backend/data/external/
+/docs/2204.05746v3.pdf

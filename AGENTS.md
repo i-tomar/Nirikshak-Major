@@ -1,6 +1,6 @@
 # 0. MISSION
 
-You are a senior full-stack, ML and security engineer. Turn this repository (`Nirikshakk-main`) into a **fully working, secure, offline-capable Bitcoin transaction intelligence system** for Smart India Hackathon **PS 26146 (NTRO) — "AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic"**. It is developed on **Windows** and **delivered and run through Docker (Linux containers)**. It must also prove its ML on **real public Bitcoin datasets** (Elliptic, BitcoinHeist, BABD-13) as well as on synthetic data.
+You are a senior full-stack, ML and security engineer. Turn this repository (the folder you are in, D:\NirikshakM) into a **fully working, secure, offline-capable Bitcoin transaction intelligence system** for Smart India Hackathon **PS 26146 (NTRO) — "AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic"**. It is developed on **Windows** and **delivered and run through Docker (Linux containers)**. It must also prove its ML on **real public Bitcoin datasets** (Elliptic and BitcoinHeist) as well as on synthetic data.
 
 Official requirements: ingest bulk Bitcoin transaction/network metadata in **CSV, JSON, XML** (`timestamp, src_ip, dst_ip, src_port, dst_port, txid, input_addresses[], output_addresses[], input_amounts[], output_amounts[], fee, script_type, geo_country/asn` with an **open-source offline GeoIP DB**); **correlate** network-layer (IP/port/timing) with blockchain-layer (wallet/TXID/amount) data; build an **entity/transaction graph**; implement **working trained ML** (entity clustering, anomaly detection, peeling-chain/CoinJoin detection, risk scoring with propagation from seed wallets); produce a **ranked, explainable alert list with confidence scores**; provide a **dashboard / link-analysis view with evidence for each flag**; ship a workable offline solution, repo and short technical write-up.
 
@@ -39,6 +39,10 @@ Provide **both** `Makefile` and `tasks.ps1` with identical targets (`setup test 
 ## 1.6 Phase report (write `docs/phase_reports/phase-N.md` and print it)
 
 1. What was built (files). 2) Commands run + **actual outputs**. 3) Metrics measured (real only), timings, peak RAM. 4) What is not done or approximate. 5) Security checks run and results. 6) Decisions/risks needing my input. 7) Git state (branch, commits, tag).
+
+## 1.7 Windows rules
+
+Windows rules: run commands in PowerShell; before EVERY commit run `git status --short` and confirm no file under backend/data/external, .venv, caches, secrets or any file over 5 MB is staged; never run `git add -A` without checking .gitignore first; never leave Docker containers running after a check.
 
 ---
 
@@ -137,7 +141,10 @@ Host folders (git-ignored, never committed, never modified, mounted read-only in
 
 - `backend/data/external/elliptic/` — **Elliptic** (expected `elliptic_txs_features.csv`, `elliptic_txs_classes.csv`, `elliptic_txs_edgelist.csv`; transaction-level; licit/illicit/unknown; 49 time steps; no addresses/IPs).
 - `backend/data/external/bitcoinheist/BitcoinHeistData.csv` — **BitcoinHeist** (address-level; expected columns like `address, year, day, length, weight, count, looped, neighbors, income, label`; `white` = non-ransomware; \~230 MB).
-- `backend/data/external/babd13/` — **BABD-13** (real files now present: address-level labels, 13 behaviour types, \~148 features). **Required, do not skip.**
+BABD-13 is NOT used in this project (file too large for the dev machine). Do not build a BABD adapter; if asked, report `not_available`.
+
+The real datasets live only in backend/data/external/ and must never be staged, committed, copied into Docker images, or modified.
+
 - Optional `backend/data/external/elliptic_plus_plus/` if present.
 - **First action for each dataset: list files, print columns, dtypes, row counts, label distribution, time coverage into `docs/data_audit/<dataset>.md`. Derive mappings only from what you actually see; never from names in this file.**
 - Real datasets contain **no IP/port/ASN**. Any network layer on real data is a **simulated overlay** with documented assumptions (relay-delay distribution, shared-infrastructure probability, Tor/VPN noise), stored separately, flagged `simulated=true`, data source `real_plus_simulated_network`.
@@ -183,7 +190,6 @@ One **adapter** and one train/eval script per dataset. These models are benchmar
 
 - **Elliptic (transaction-level):** use the dataset's time steps; train on early steps, test on later (standard: train ≤ step 34, test 35–49); exclude `unknown` from training and metrics; XGBoost + simple baseline (logistic regression/random forest); PR-AUC, illicit-class precision/recall/F1, Precision@K; per-time-step performance and a note on any collapse after dark-market shutdowns.
 - **BitcoinHeist (address-level):** binary (`white` vs any ransomware) and per-family; split by `year`; imbalance via `scale_pos_weight` and PR-AUC; SHAP on the real model; per-family recall; chunked read.
-- **BABD-13:** binary illicit/licit and 13-class; time-aware split if timestamps exist, else stratified with leakage notes; per-class precision/recall; SHAP summary.
 - Compare each against a trivial baseline; fixed seeds; write `data/analysis/real_eval_<dataset>.json` and `docs/real_data_results.md`. State that real-data scores reflect public labels, possible sampling bias, and say nothing about field performance.
 
 ## 7.9 Evaluation (`scripts/evaluate.py`)
@@ -206,7 +212,7 @@ Unit tests: each parser incl. malformed rows in all three formats, GeoIP + fallb
 
 # 10. DEFINITION OF DONE
 
-On a Windows machine with Docker Desktop and **no internet**, a user can: run `docker compose up --build` (or load the offline bundle) → create the admin → log in → import CSV, JSON and XML → see validation/quarantine → run analysis → browse ranked alerts with confidence → open an alert and see SHAP, three evidence groups, sufficiency, blind spots, provenance → open a one-transaction wallet and see bounded expansion, counterfactual and next action → explore a bounded Cytoscape graph, clusters and peeling/CoinJoin patterns → create a case, annotate, export a hashed PDF → view computed metrics with synthetic and real-data (Elliptic, BitcoinHeist, BABD-13) results in separate labelled tables → verify the audit chain → reproduce identical results on rerun. No fake data in any live view; all security tests pass; every phase gate passed and merged.
+On a Windows machine with Docker Desktop and **no internet**, a user can: run `docker compose up --build` (or load the offline bundle) → create the admin → log in → import CSV, JSON and XML → see validation/quarantine → run analysis → browse ranked alerts with confidence → open an alert and see SHAP, three evidence groups, sufficiency, blind spots, provenance → open a one-transaction wallet and see bounded expansion, counterfactual and next action → explore a bounded Cytoscape graph, clusters and peeling/CoinJoin patterns → create a case, annotate, export a hashed PDF → view computed metrics with synthetic and real-data (Elliptic, BitcoinHeist) results in separate labelled tables → verify the audit chain → reproduce identical results on rerun. No fake data in any live view; all security tests pass; every phase gate passed and merged.
 
 ---
 
