@@ -357,7 +357,7 @@ def build_investigation_graph(
     # Save to local storage
     g_paths = get_graph_storage_paths(graph_dir)
     with open(g_paths["json"], "w", encoding="utf-8") as f:
-        json.dump(nx.adjacency_data(G), f, allow_nan=False)
+        json.dump(nx.adjacency_data(G, attrs={"id": "_node", "key": "_key"}), f, allow_nan=False)
 
     with open(g_paths["stats"], "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2)
@@ -396,7 +396,7 @@ def load_or_build_graph(
     if paths["json"].exists() and paths["stats"].exists():
         try:
             with open(paths["json"], encoding="utf-8") as f:
-                G = nx.adjacency_graph(json.load(f))
+                G = nx.adjacency_graph(json.load(f), attrs={"id": "_node", "key": "_key"})
             with open(paths["stats"], "r", encoding="utf-8") as f:
                 stats = json.load(f)
             _MEMORY_GRAPH_CACHE = G

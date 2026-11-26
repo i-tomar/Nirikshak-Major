@@ -224,7 +224,7 @@ def main():
     assert g_paths["stats"].exists() and g_paths["stats"].stat().st_size > 0
     assert g_paths["graphml"].exists() and g_paths["graphml"].stat().st_size > 0
     with g_paths["json"].open(encoding="utf-8") as cache:
-        assert nx.utils.graphs_equal(G, nx.adjacency_graph(json.load(cache)))
+        assert nx.utils.graphs_equal(G, nx.adjacency_graph(json.load(cache), attrs={"id": "_node", "key": "_key"}))
     with open(g_paths["stats"], "r", encoding="utf-8") as f:
         stored_stats = json.load(f)
     assert stored_stats["total_nodes"] == stats["total_nodes"]

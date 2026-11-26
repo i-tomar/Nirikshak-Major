@@ -28,7 +28,7 @@ class AnalysisSummary(BaseModel):
     clustering_enabled: bool = True
     cluster_count: int = 6
     clustered_wallets: int = 0
-    silhouette_score_k6: float = 0.0
+    silhouette_score_k6: Optional[float] = None
     clustering_runtime_ms: float = 0.0
 
 
