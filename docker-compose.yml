@@ -20,6 +20,8 @@ services:
       - ./backend/data/geoip:/app/data/geoip:ro
     environment:
       - PYTHONUNBUFFERED=1
+      - NIRIKSHAK_ENABLE_DOCS=${NIRIKSHAK_ENABLE_DOCS:-0}
+      - NIRIKSHAK_CORS_ORIGINS=${NIRIKSHAK_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 5s
@@ -44,7 +46,10 @@ services:
     networks:
       - nirikshak-network
 
+      - web-ingress
+
 networks:
+  web-ingress: {}
   nirikshak-network:
     driver: bridge
     internal: true
