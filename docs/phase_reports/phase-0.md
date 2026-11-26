@@ -47,3 +47,7 @@ Real HTTP tests sent SQL operator, comment, UNION, stacked statement, null byte,
 ## Decisions and Git state
 
 The narrow third-party type ignores are listed individually in `docs/DECISIONS.md`. No Ruff rule or mypy module was broadly exempted. At this report revision the phase branch includes the hygiene merge from local main (`b1154e0`); final main merge and `phase-0-done` tag are to be recorded after the required post-merge check. No dataset, cache, secret, key or file over 5 MB was staged.
+
+## Post-reconciliation check
+
+Local main at b1154e0 was already an ancestor of the phase branch; `git merge main` printed `Already up to date.` The required rerun of `.\tasks.ps1 check` exited **0**: Windows pytest 49 passed in 26.57s, Docker pytest 49 passed in 6.58s, Ruff `All checks passed!`, mypy `Success: no issues found in 29 source files`, Bandit `No issues identified`, pip-audit `No known vulnerabilities found`, npm audit `found 0 vulnerabilities`. Verifiers 1–5 exited 0, frontend lint and build exited 0, and Compose stopped backend and frontend. `docker compose ps --status running` had no service rows. 
