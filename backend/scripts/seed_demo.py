@@ -22,7 +22,7 @@ def main() -> None:
         num_ips=350,
         anomaly_pct=5.0,
         days=7,
-        start_time=datetime(2025, 1, 1, tzinfo=UTC),
+        start_time=datetime(2025, 1, 1, 16, 40, tzinfo=UTC),
         seed=42,
     )
     transactions, labels = generator.generate()

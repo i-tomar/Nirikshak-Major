@@ -21,10 +21,10 @@ def parse_list_field(value: Any, item_type: type = str) -> List[Any]:
         if (v.startswith("[") and v.endswith("]")) or (v.startswith("(") and v.endswith(")")):
             try:
                 parsed = json.loads(v)
-                if isinstance(parsed, list):
-                    return [item_type(x) for x in parsed]
-            except Exception:
-                pass
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                return [item_type(x) for x in parsed]
         # Fallback: delimiter-separated (comma, semicolon, or pipe)
         for sep in [";", "|", ","]:
             if sep in v:

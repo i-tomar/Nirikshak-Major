@@ -91,7 +91,9 @@ def run_full_analysis() -> AnalysisSummary:
             ("leads", leads),
         ):
             table.write_parquet(staged[name], compression="zstd")
+        clustering_start = perf_counter()
         profiles, assignments = run_behavioral_clustering(features, leads=leads)
+        clustering_ms = 1000 * (perf_counter() - clustering_start)
         assignments.write_parquet(Path(tmp) / "wallet_clusters.parquet")
         (Path(tmp) / "cluster_profiles.json").write_text(
             profiles.model_dump_json(), encoding="utf-8"
@@ -112,6 +114,7 @@ def run_full_analysis() -> AnalysisSummary:
             clustering_enabled=True,
             cluster_count=profiles.total_clusters,
             clustered_wallets=len(features),
+            clustering_runtime_ms=clustering_ms,
             silhouette_score_k6=profiles.diagnostics.selected_k_silhouette,
         )
         staged["summary"].write_text(summary.model_dump_json(), encoding="utf-8")

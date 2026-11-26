@@ -8,6 +8,8 @@ Constructs a multi-layer NetworkX directed graph from normalized analytical tabl
 - Edges: input, output, counterparty heuristic, and network_observation relationships.
 """
 
+import logging
+
 from collections import defaultdict
 from datetime import datetime, timezone
 import json
@@ -373,7 +375,7 @@ def build_investigation_graph(
             clean_G.add_edge(u, v, **clean_data)
         nx.write_graphml(clean_G, str(g_paths["graphml"]))
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("GraphML export failed")
 
     _MEMORY_GRAPH_CACHE = G
     _MEMORY_STATS_CACHE = stats
@@ -403,7 +405,7 @@ def load_or_build_graph(
             _MEMORY_STATS_CACHE = stats
             return G
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("Rebuilding unreadable graph cache")
 
     G, _ = build_investigation_graph(
         storage_dir=storage_dir,
@@ -428,7 +430,7 @@ def get_graph_stats(graph_dir: Optional[Union[str, Path]] = None) -> Dict[str, A
             _MEMORY_STATS_CACHE = stats
             return stats
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("Rebuilding unreadable graph statistics")
 
     _, stats = build_investigation_graph(graph_dir=graph_dir)
     return stats

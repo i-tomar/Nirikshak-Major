@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional
@@ -59,6 +60,7 @@ def process_dataset_end_to_end(
     4. Process-level in-memory cache invalidation
     5. Active dataset manifest compilation with real measured stage durations
     """
+
     summary = calculate_dataset_summary(valid_records) if valid_records else None
     storage_info: Optional[StorageInfo] = None
     stage_timings: Dict[str, float] = {"validation": val_ms}
@@ -144,7 +146,7 @@ def process_dataset_end_to_end(
                 with open(MANIFEST_FILE, "w", encoding="utf-8") as mf:
                     json.dump(manifest_payload, mf, indent=2)
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("Could not persist dataset manifest")
 
         except Exception as e:
             pipeline_status = "FAILED"
@@ -305,7 +307,7 @@ def get_active_dataset_status():
                 data = json.load(mf)
                 return ActiveDatasetStatus(**data)
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("Could not read dataset manifest")
 
     # Fallback: check if normalized and analysis data exist on disk
     if has_normalized_data() and has_analysis_data():
@@ -331,6 +333,6 @@ def get_active_dataset_status():
                 analyzed_at=analysis_summary.get("analyzed_at"),
             )
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("Could not read analysis summary")
 
     return ActiveDatasetStatus(has_dataset=False)

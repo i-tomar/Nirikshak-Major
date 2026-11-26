@@ -76,8 +76,8 @@ def get_wallet_investigation(
     # 1. Look up wallet in normalized wallets table
     try:
         w_df = con.execute(
-            f"SELECT * FROM '{wallets_path}' WHERE wallet_address = ? LIMIT 1",
-            [clean_id]
+            "SELECT * FROM read_parquet(?) WHERE wallet_address = ? LIMIT 1",
+            [wallets_path, clean_id]
         ).fetch_df()
     except Exception as e:
         raise HTTPException(
@@ -111,8 +111,8 @@ def get_wallet_investigation(
         try:
             leads_path = get_analysis_paths()["leads"].resolve().as_posix()
             lead_df = con.execute(
-                f"SELECT * FROM '{leads_path}' WHERE wallet_address = ? LIMIT 1",
-                [clean_id]
+                "SELECT * FROM read_parquet(?) WHERE wallet_address = ? LIMIT 1",
+                [leads_path, clean_id]
             ).fetch_df()
 
             if not lead_df.empty:
@@ -161,22 +161,22 @@ def get_wallet_investigation(
     # 3. Query transactions involving this wallet
     try:
         total_tx_count = int(con.execute(
-            f"""
-            SELECT COUNT(*) FROM '{tx_path}'
+            """
+            SELECT COUNT(*) FROM read_parquet(?)
             WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             """,
-            [clean_id, clean_id]
+            [tx_path, clean_id, clean_id]
         ).fetchone()[0])
 
-        tx_query = f"""
+        tx_query = """
             SELECT txid, timestamp, input_addresses, output_addresses, input_amounts, output_amounts,
                    fee, script_type, total_input_amount, total_output_amount
-            FROM '{tx_path}'
+            FROM read_parquet(?)
             WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             ORDER BY timestamp DESC
-            LIMIT {tx_limit}
+            LIMIT ?
         """
-        tx_df = con.execute(tx_query, [clean_id, clean_id]).fetch_df()
+        tx_df = con.execute(tx_query, [tx_path, clean_id, clean_id, tx_limit]).fetch_df()
 
         transactions: List[InvestigationTransaction] = []
         for _, tr in tx_df.iterrows():
@@ -208,27 +208,27 @@ def get_wallet_investigation(
     # 4. Query correlated network observations for transactions involving this wallet
     try:
         total_net_count = int(con.execute(
-            f"""
-            SELECT COUNT(*) FROM '{net_path}'
+            """
+            SELECT COUNT(*) FROM read_parquet(?)
             WHERE txid IN (
-                SELECT txid FROM '{tx_path}'
+                SELECT txid FROM read_parquet(?)
                 WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             )
             """,
-            [clean_id, clean_id]
+            [net_path, tx_path, clean_id, clean_id]
         ).fetchone()[0])
 
-        net_query = f"""
+        net_query = """
             SELECT txid, timestamp, src_ip, dst_ip, src_port, dst_port, geo_country, ASN
-            FROM '{net_path}'
+            FROM read_parquet(?)
             WHERE txid IN (
-                SELECT txid FROM '{tx_path}'
+                SELECT txid FROM read_parquet(?)
                 WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             )
             ORDER BY timestamp DESC
-            LIMIT {net_limit}
+            LIMIT ?
         """
-        net_df = con.execute(net_query, [clean_id, clean_id]).fetch_df()
+        net_df = con.execute(net_query, [net_path, tx_path, clean_id, clean_id, net_limit]).fetch_df()
 
         network_obs: List[InvestigationNetworkObservation] = []
         for _, nr in net_df.iterrows():

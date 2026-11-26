@@ -74,9 +74,8 @@ def get_duckdb_connection(storage_dir: Optional[Union[str, Path]] = None) -> duc
 
     paths = get_parquet_paths(storage_dir)
     con = duckdb.connect(":memory:")
-    con.execute(f"CREATE VIEW transactions AS SELECT * FROM '{paths['transactions'].resolve().as_posix()}'")
-    con.execute(f"CREATE VIEW wallets AS SELECT * FROM '{paths['wallets'].resolve().as_posix()}'")
-    con.execute(f"CREATE VIEW network_observations AS SELECT * FROM '{paths['network_observations'].resolve().as_posix()}'")
+    for name, path in paths.items():
+        con.read_parquet(str(path)).create_view(name)
     return con
 
 
@@ -129,7 +128,7 @@ def get_top_wallets_by_tx_count(
     storage_dir: Optional[Union[str, Path]] = None,
 ) -> List[Dict[str, Any]]:
     con = get_duckdb_connection(storage_dir)
-    df = con.execute(f"""
+    df = con.execute("""
         SELECT 
             wallet_address, 
             transaction_count, 
@@ -139,8 +138,8 @@ def get_top_wallets_by_tx_count(
             total_output_amount
         FROM wallets 
         ORDER BY transaction_count DESC, total_output_amount DESC 
-        LIMIT {limit}
-    """).fetch_df()
+        LIMIT ?
+    """, [limit]).fetch_df()
     return df.to_dict(orient="records")
 
 
@@ -149,7 +148,7 @@ def get_top_wallets_by_volume(
     storage_dir: Optional[Union[str, Path]] = None,
 ) -> List[Dict[str, Any]]:
     con = get_duckdb_connection(storage_dir)
-    df = con.execute(f"""
+    df = con.execute("""
         SELECT 
             wallet_address, 
             transaction_count, 
@@ -158,8 +157,8 @@ def get_top_wallets_by_volume(
             ROUND(total_input_amount + total_output_amount, 8) as total_volume
         FROM wallets 
         ORDER BY (total_input_amount + total_output_amount) DESC 
-        LIMIT {limit}
-    """).fetch_df()
+        LIMIT ?
+    """, [limit]).fetch_df()
     return df.to_dict(orient="records")
 
 
