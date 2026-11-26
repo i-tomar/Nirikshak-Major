@@ -10,3 +10,7 @@ The initial anomaly model reloads from hash-checked numeric Parquet training inp
 =======
 >>>>>>> main
 BABD-13 dropped (file too large for the dev machine); real-data track uses Elliptic and BitcoinHeist.
+
+Both baseline 0d06e64 and 32ebd44 generated the same CSV, SHA-256 be9448ac22895089f0274ded4dc9b63100db0e4b17ac688faf5f7981a85ca937. With 5,000 transactions, 4,915 wallets, 5,000 observations and zero rejected rows on both, independent Decimal summation and DuckDB each gave 5216.56493532 BTC on both revisions. The baseline package initializer was bypassed in the scratch worktree because it imports the missing ML module. The actual generator, schema, loader, normalizer and storage were unchanged. The legacy fixture was unavailable. Phase 3 verification now derives expected volume and timestamp boundaries directly from source CSV and retains the original precision and table-count checks. Phase 5 inherits this correction through its regression runner.
+
+API failure tests cover server-side correlation IDs, sensitive detail redaction, configured CORS and default-disabled documentation. Alert literal-input tests cover punctuation, Unicode and length without requiring application data mutations.

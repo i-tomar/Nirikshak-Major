@@ -25,6 +25,9 @@ Verifies:
 
 import os
 import shutil
+import csv
+import json
+from decimal import Decimal
 import sys
 import tempfile
 from pathlib import Path
@@ -65,6 +68,14 @@ def verify_phase3():
     data_dir = backend_dir / "data"
     csv_file = data_dir / "demo_transactions.csv"
     json_file = data_dir / "demo_transactions.json"
+    with csv_file.open(encoding="utf-8", newline="") as source:
+        source_rows = list(csv.DictReader(source))
+    expected_volume = sum(
+        (Decimal(value) for row in source_rows
+         for value in json.loads(row["output_amounts"], parse_float=Decimal)),
+        Decimal(0),
+    )
+    timestamps = [row["timestamp"] for row in source_rows]
     client = TestClient(app)
 
     # 1. Normalization with Polars from CSV
@@ -145,9 +156,9 @@ def verify_phase3():
         assert wallet_count == 4915
         assert net_count == 5000
         assert ip_count == 710
-        assert abs(tot_vol - 5174.20608283) < 1e-6
-        assert t_start == "2026-09-01T19:35:28.570984+00:00"
-        assert t_end == "2026-09-09T00:31:48.880850+00:00"
+        assert abs(tot_vol - float(expected_volume)) < 1e-6
+        assert t_start == min(timestamps)
+        assert t_end == max(timestamps)
         print("   [PASS] DuckDB analytical queries verified.")
 
     # 5. Integration: POST /api/datasets/upload with Phase 3 Storage
@@ -191,7 +202,7 @@ def verify_phase3():
     assert stats_body["wallets"] == 4915
     assert stats_body["network_observations"] == 5000
     assert stats_body["unique_ips"] == 710
-    assert abs(stats_body["total_btc"] - 5174.20608283) < 1e-6
+    assert abs(stats_body["total_btc"] - float(expected_volume)) < 1e-6
     print("   [PASS] GET /api/stats returned exact DuckDB statistics.")
 
     # 7. Invalid dataset does NOT write Parquet tables
