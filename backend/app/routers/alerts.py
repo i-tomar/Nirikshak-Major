@@ -48,14 +48,16 @@ def list_alerts(
     tier = risk_level.strip().upper() if risk_level else None
     query_args = [leads_path, min_risk_score, tier, tier]
     with duckdb.connect() as con:
-        total_leads = con.execute(
+        total_leads_row = con.execute(
             "SELECT COUNT(*) FROM read_parquet(?)", [leads_path]
-        ).fetchone()[0]
-        filtered_count = con.execute(
+        ).fetchone()
+        total_leads = int(total_leads_row[0]) if total_leads_row else 0
+        filtered_count_row = con.execute(
             """SELECT COUNT(*) FROM read_parquet(?)
                WHERE risk_score >= ? AND (? IS NULL OR upper(risk_level) = ?)""",
             query_args,
-        ).fetchone()[0]
+        ).fetchone()
+        filtered_count = int(filtered_count_row[0]) if filtered_count_row else 0
         df_results = con.execute(
             """SELECT alert_id, rank, wallet_address, risk_score, risk_level,
                       anomaly_score, anomaly_percentile, transaction_count,

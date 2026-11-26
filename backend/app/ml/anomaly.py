@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 from app.ml.features import NUMERICAL_FEATURE_NAMES
-from scipy.stats import rankdata
-from sklearn.ensemble import IsolationForest
+from scipy.stats import rankdata  # type: ignore[import-untyped]  # SciPy stubs are not pinned.
+from sklearn.ensemble import IsolationForest  # type: ignore[import-untyped]  # scikit-learn has no typing marker.
 
 MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
 

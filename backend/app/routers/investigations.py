@@ -70,7 +70,7 @@ def get_wallet_investigation(
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid wallet identifier format: '{wallet_id}'.",
+            detail="Invalid wallet identifier format",
         )
 
     if not has_normalized_data():
@@ -101,7 +101,7 @@ def get_wallet_investigation(
     if w_df.empty:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Wallet '{clean_id}' was not found in the transaction records.",
+            detail="Wallet not found in the transaction records",
         )
 
     w_row = w_df.iloc[0].to_dict()
@@ -176,22 +176,21 @@ def get_wallet_investigation(
                             feature=r.get("feature"),
                         )
                     )
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError, duckdb.Error):
             # If leads table is unreadable, proceed gracefully without failing the entire dossier
             risk_dossier = None
             evidence_items = []
 
     # 3. Query transactions involving this wallet
     try:
-        total_tx_count = int(
-            con.execute(
-                """
+        total_tx_row = con.execute(
+            """
             SELECT COUNT(*) FROM read_parquet(?)
             WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             """,
-                [tx_path, clean_id, clean_id],
-            ).fetchone()[0]
-        )
+            [tx_path, clean_id, clean_id],
+        ).fetchone()
+        total_tx_count = int(total_tx_row[0]) if total_tx_row else 0
 
         tx_query = """
             SELECT txid, timestamp, input_addresses, output_addresses, input_amounts, output_amounts,
@@ -256,18 +255,17 @@ def get_wallet_investigation(
 
     # 4. Query correlated network observations for transactions involving this wallet
     try:
-        total_net_count = int(
-            con.execute(
-                """
+        total_net_row = con.execute(
+            """
             SELECT COUNT(*) FROM read_parquet(?)
             WHERE txid IN (
                 SELECT txid FROM read_parquet(?)
                 WHERE list_contains(input_addresses, ?) OR list_contains(output_addresses, ?)
             )
             """,
-                [net_path, tx_path, clean_id, clean_id],
-            ).fetchone()[0]
-        )
+            [net_path, tx_path, clean_id, clean_id],
+        ).fetchone()
+        total_net_count = int(total_net_row[0]) if total_net_row else 0
 
         net_query = """
             SELECT txid, timestamp, src_ip, dst_ip, src_port, dst_port, geo_country, ASN
@@ -344,7 +342,7 @@ def get_wallet_investigation(
                 asn_count=0,
                 country_count=0,
             )
-    except Exception:
+    except (OSError, ValueError, TypeError, KeyError, duckdb.Error):
         # Graceful fallback to table telemetry if graph layer is uninitialized
         graph_summary = InvestigationGraphSummary(
             direct_neighbor_count=wallet_summary.transaction_count,

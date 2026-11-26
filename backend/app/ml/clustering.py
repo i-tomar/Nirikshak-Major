@@ -13,10 +13,10 @@ from app.schemas.clustering import (
     SimilarWalletsResponse,
     WalletClusterDetailResponse,
 )
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
-from threadpoolctl import threadpool_limits
+from sklearn.cluster import KMeans  # type: ignore[import-untyped]  # scikit-learn has no typing marker.
+from sklearn.decomposition import PCA  # type: ignore[import-untyped]  # scikit-learn has no typing marker.
+from sklearn.metrics import silhouette_score  # type: ignore[import-untyped]  # scikit-learn has no typing marker.
+from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]  # threadpoolctl has no typing marker.
 
 BASE = Path(__file__).resolve().parents[2] / "data" / "analysis"
 EXCLUDED_FEATURE_NAMES = {"wallet_degree", "amount_fragmentation_score"}
@@ -85,8 +85,8 @@ def run_behavioral_clustering(
                 label=f"Behavioral group {group + 1}",
                 description=f"Inferred group differentiated by {', '.join(traits)}.",
                 wallet_count=len(members),
-                average_risk_score=matched["risk_score"].mean(),
-                anomaly_rate=matched["is_outlier"].mean(),
+                average_risk_score=float(str(matched["risk_score"].mean() or 0.0)),
+                anomaly_rate=float(str(matched["is_outlier"].mean() or 0.0)),
                 centroid_distance_mean=distances[mask].mean(),
                 centroid_distance_median=np.median(distances[mask]),
                 top_differentiating_features=traits,

@@ -100,7 +100,7 @@ def verify_phase3():
 
     # 2. Normalization with Polars from JSON
     print("\n[Step 2] Verifying JSON Normalization with Polars...")
-    json_records, json_rejected = load_transactions(json_file)
+    json_records, _json_rejected = load_transactions(json_file)
     assert len(json_records) == 5000
     json_tables = normalize_dataset(json_records)
     assert json_tables["transactions"].shape == (5000, 18)
@@ -112,10 +112,10 @@ def verify_phase3():
     print("\n[Step 3] Testing Parquet Storage in isolated directory...")
     with tempfile.TemporaryDirectory() as tmpdir:
         test_sdir = Path(tmpdir) / "normalized"
-        written = save_normalized_tables(tables, storage_dir=test_sdir)
+        save_normalized_tables(tables, storage_dir=test_sdir)
         paths = get_parquet_paths(test_sdir)
 
-        for name, p in paths.items():
+        for p in paths.values():
             assert p.exists(), f"File {p} was not created!"
             assert p.stat().st_size > 0, f"File {p} is empty!"
             print(f"   -> Created {p.name} ({p.stat().st_size / 1024:.1f} KB)")
@@ -215,7 +215,7 @@ def verify_phase3():
 
     # 7. Invalid dataset does NOT write Parquet tables
     print("\n[Step 7] Verifying invalid dataset does NOT write normalized tables...")
-    with tempfile.TemporaryDirectory() as tmp_empty_dir:
+    with tempfile.TemporaryDirectory():
         bad_csv = "timestamp,src_ip,dst_ip,src_port,dst_port,txid,input_addresses,output_addresses,input_amounts,output_amounts,fee,script_type,geo_country,ASN\n"
         bad_csv += '2026-09-01T00:00:00Z,1.1.1.1,2.2.2.2,50000,8333,0000000000000000000000000000000000000000000000000000000000000001,["a"],["b"],[1.0],[9.0],0.0001,P2WPKH,US,AS13335\n'
         resp_bad = client.post(

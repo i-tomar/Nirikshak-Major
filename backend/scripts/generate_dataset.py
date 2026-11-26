@@ -17,12 +17,10 @@ import csv
 import hashlib
 import json
 import math
-import os
 import random
-import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 SCHEMA_VERSION = "schema_v1"
 
@@ -39,9 +37,24 @@ NETWORK_PROFILES = [
     {"asn": "AS4766", "name": "Korea Telecom", "country": "KR", "risk_weight": 0.03},
     {"asn": "AS2516", "name": "KDDI Corporation", "country": "JP", "risk_weight": 0.02},
     {"asn": "AS2856", "name": "British Telecom", "country": "GB", "risk_weight": 0.02},
-    {"asn": "AS9009", "name": "M247 Ltd (Bulletproof/VPN)", "country": "NL", "risk_weight": 0.85},
-    {"asn": "AS204957", "name": "Green Floid Tor Exit Node", "country": "NL", "risk_weight": 0.95},
-    {"asn": "AS44050", "name": "Petersburg Internet Network", "country": "RU", "risk_weight": 0.70},
+    {
+        "asn": "AS9009",
+        "name": "M247 Ltd (Bulletproof/VPN)",
+        "country": "NL",
+        "risk_weight": 0.85,
+    },
+    {
+        "asn": "AS204957",
+        "name": "Green Floid Tor Exit Node",
+        "country": "NL",
+        "risk_weight": 0.95,
+    },
+    {
+        "asn": "AS44050",
+        "name": "Petersburg Internet Network",
+        "country": "RU",
+        "risk_weight": 0.70,
+    },
     {"asn": "AS51167", "name": "Contabo GmbH", "country": "DE", "risk_weight": 0.25},
     {"asn": "AS55836", "name": "Reliance Jio", "country": "IN", "risk_weight": 0.03},
     {"asn": "AS45609", "name": "Bharti Airtel", "country": "IN", "risk_weight": 0.03},
@@ -51,7 +64,9 @@ SCRIPT_TYPES = ["P2WPKH", "P2PKH", "P2SH", "P2TR"]
 SCRIPT_WEIGHTS = [0.55, 0.25, 0.15, 0.05]
 
 
-def generate_btc_address(rng: random.Random, script_type: str, seed_prefix: str = "") -> str:
+def generate_btc_address(
+    rng: random.Random, script_type: str, seed_prefix: str = ""
+) -> str:
     """Generate a realistic synthetic Bitcoin address matching script type."""
     h = hashlib.sha256(f"{seed_prefix}_{rng.random()}".encode()).hexdigest()
     if script_type == "P2WPKH":
@@ -70,14 +85,18 @@ def generate_btc_address(rng: random.Random, script_type: str, seed_prefix: str 
 
 def generate_txid(rng: random.Random, data_seed: str) -> str:
     """Generate deterministic 64-hex transaction ID."""
-    return hashlib.sha256(f"NIRIKSHAK_TX_{data_seed}_{rng.random()}".encode()).hexdigest()
+    return hashlib.sha256(
+        f"NIRIKSHAK_TX_{data_seed}_{rng.random()}".encode()
+    ).hexdigest()
 
 
-def generate_ip_address(rng: random.Random, asn_info: Dict[str, Any]) -> str:
+def generate_ip_address(rng: random.Random, asn_info: dict[str, Any]) -> str:
     """Generate realistic IP address correlated with network profile."""
     # Specific subnet prefixes for realism
     if "Bulletproof" in asn_info["name"]:
-        return f"185.{rng.randint(100, 240)}.{rng.randint(1, 254)}.{rng.randint(1, 254)}"
+        return (
+            f"185.{rng.randint(100, 240)}.{rng.randint(1, 254)}.{rng.randint(1, 254)}"
+        )
     if "Tor" in asn_info["name"]:
         return f"194.26.{rng.randint(10, 80)}.{rng.randint(1, 254)}"
     if "Amazon" in asn_info["name"]:
@@ -98,7 +117,7 @@ class SyntheticBitcoinGenerator:
         num_ips: int = 400,
         anomaly_pct: float = 5.0,
         days: int = 7,
-        start_time: datetime = None,
+        start_time: datetime | None = None,
         seed: int = 42,
     ):
         self.num_tx = num_tx
@@ -107,33 +126,37 @@ class SyntheticBitcoinGenerator:
         self.anomaly_pct = anomaly_pct
         self.days = days
         self.rng = random.Random(seed)
-        
-        self.start_time = start_time or (
-            datetime.now(timezone.utc) - timedelta(days=self.days)
-        )
+
+        self.start_time = start_time or (datetime.now(UTC) - timedelta(days=self.days))
         self.end_time = self.start_time + timedelta(days=self.days)
 
         # Pre-generate persistent pool of wallets
-        self.wallets: List[Dict[str, Any]] = []
+        self.wallets: list[dict[str, Any]] = []
         self._init_wallet_pool()
 
         # Pre-generate persistent pool of IP nodes
-        self.ip_nodes: List[Dict[str, Any]] = []
+        self.ip_nodes: list[dict[str, Any]] = []
         self._init_network_pool()
 
     def _init_wallet_pool(self):
         """Create pool of wallets with realistic script types and activity profiles."""
         for i in range(self.num_wallets):
             script_type = self.rng.choices(SCRIPT_TYPES, weights=SCRIPT_WEIGHTS)[0]
-            addr = generate_btc_address(self.rng, script_type, seed_prefix=f"wallet_{i}")
+            addr = generate_btc_address(
+                self.rng, script_type, seed_prefix=f"wallet_{i}"
+            )
             # Activity tier: merchant (high freq), standard user, low freq cold storage
-            tier = self.rng.choices(["high", "medium", "low"], weights=[0.05, 0.45, 0.50])[0]
-            self.wallets.append({
-                "address": addr,
-                "script_type": script_type,
-                "tier": tier,
-                "balance": round(self.rng.uniform(0.01, 25.0), 8)
-            })
+            tier = self.rng.choices(
+                ["high", "medium", "low"], weights=[0.05, 0.45, 0.50]
+            )[0]
+            self.wallets.append(
+                {
+                    "address": addr,
+                    "script_type": script_type,
+                    "tier": tier,
+                    "balance": round(self.rng.uniform(0.01, 25.0), 8),
+                }
+            )
 
     def _init_network_pool(self):
         """Create pool of realistic network observer nodes."""
@@ -141,12 +164,14 @@ class SyntheticBitcoinGenerator:
         for i in range(self.num_ips):
             profile = self.rng.choice(normal_profiles)
             ip = generate_ip_address(self.rng, profile)
-            self.ip_nodes.append({
-                "ip": ip,
-                "asn": profile["asn"],
-                "country": profile["country"],
-                "name": profile["name"],
-            })
+            self.ip_nodes.append(
+                {
+                    "ip": ip,
+                    "asn": profile["asn"],
+                    "country": profile["country"],
+                    "name": profile["name"],
+                }
+            )
 
     def _random_timestamp(self) -> datetime:
         """Sample timestamp with natural daily diurnal variation."""
@@ -160,14 +185,14 @@ class SyntheticBitcoinGenerator:
             dt += timedelta(hours=self.rng.choice([-2, 2, 4]))
         return dt
 
-    def generate(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def generate(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Generate complete dataset: transactions and ground truth.
         """
-        transactions: List[Dict[str, Any]] = []
-        ground_truth: Dict[str, Any] = {
+        transactions: list[dict[str, Any]] = []
+        ground_truth: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "config": {
                 "num_tx": self.num_tx,
                 "num_wallets": self.num_wallets,
@@ -215,7 +240,7 @@ class SyntheticBitcoinGenerator:
         transactions.sort(key=lambda x: x["timestamp"])
 
         # Compile final summary statistics for ground truth
-        anomaly_breakdown = {}
+        anomaly_breakdown: dict[str, int] = {}
         for item in ground_truth["transactions"].values():
             atype = item.get("anomaly_type") or "normal"
             anomaly_breakdown[atype] = anomaly_breakdown.get(atype, 0) + 1
@@ -225,14 +250,21 @@ class SyntheticBitcoinGenerator:
             "normal_count": anomaly_breakdown.get("normal", 0),
             "anomaly_count": len(transactions) - anomaly_breakdown.get("normal", 0),
             "anomaly_percentage": round(
-                ((len(transactions) - anomaly_breakdown.get("normal", 0)) / len(transactions)) * 100, 2
+                (
+                    (len(transactions) - anomaly_breakdown.get("normal", 0))
+                    / len(transactions)
+                )
+                * 100,
+                2,
             ),
             "anomaly_breakdown": anomaly_breakdown,
         }
 
         return transactions, ground_truth
 
-    def _generate_rapid_multihop_cluster(self, cluster_idx: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def _generate_rapid_multihop_cluster(
+        self, cluster_idx: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Scripted Scenario 1:
         Wallet A -> Wallet B -> Wallet C -> Wallet D -> Wallet E
@@ -245,7 +277,9 @@ class SyntheticBitcoinGenerator:
 
         cluster_id = f"cluster_rapid_multihop_{cluster_idx}"
         hops = [
-            generate_btc_address(self.rng, "P2WPKH", f"nirikshak_origin_a_{cluster_id}"),
+            generate_btc_address(
+                self.rng, "P2WPKH", f"nirikshak_origin_a_{cluster_id}"
+            ),
             generate_btc_address(self.rng, "P2WPKH", f"nirikshak_hop1_b_{cluster_id}"),
             generate_btc_address(self.rng, "P2WPKH", f"nirikshak_hop2_c_{cluster_id}"),
             generate_btc_address(self.rng, "P2WPKH", f"nirikshak_hop3_d_{cluster_id}"),
@@ -261,8 +295,9 @@ class SyntheticBitcoinGenerator:
             }
 
         start_dt = self.start_time + timedelta(
-            days=self.rng.uniform(0.5 + cluster_idx * 0.8, 1.5 + cluster_idx * 0.8) % self.days,
-            hours=self.rng.uniform(2, 8)
+            days=self.rng.uniform(0.5 + cluster_idx * 0.8, 1.5 + cluster_idx * 0.8)
+            % self.days,
+            hours=self.rng.uniform(2, 8),
         )
         current_amount = round(self.rng.uniform(14.5, 18.0), 8)
         current_time = start_dt
@@ -302,15 +337,22 @@ class SyntheticBitcoinGenerator:
                 "label": "anomaly",
                 "anomaly_type": "rapid_multihop_cluster",
                 "pattern_name": "Rapid Multi-Hop Laundering Layer",
-                "notes": f"Step {i+1} of 4: Rapid fund forwarding ({current_amount} BTC -> {out_amount} BTC) across fresh addresses in < 60s",
-                "entities_involved": [src_addr, dst_addr, src_ip, bulletproof_profile["asn"]],
+                "notes": f"Step {i + 1} of 4: Rapid fund forwarding ({current_amount} BTC -> {out_amount} BTC) across fresh addresses in < 60s",
+                "entities_involved": [
+                    src_addr,
+                    dst_addr,
+                    src_ip,
+                    bulletproof_profile["asn"],
+                ],
             }
 
             current_amount = out_amount
 
         return txs, {"transactions": gt_txs, "wallets": gt_wallets}
 
-    def _generate_peeling_chain(self, chain_idx: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def _generate_peeling_chain(
+        self, chain_idx: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Scripted Scenario 2:
         High-value origin peels off small payment amounts (e.g. 1.25 BTC)
@@ -322,14 +364,17 @@ class SyntheticBitcoinGenerator:
 
         chain_id = f"peeling_chain_{chain_idx}"
         start_dt = self.start_time + timedelta(
-            days=self.rng.uniform(1.0 + chain_idx * 0.9, 2.0 + chain_idx * 0.9) % self.days
+            days=self.rng.uniform(1.0 + chain_idx * 0.9, 2.0 + chain_idx * 0.9)
+            % self.days
         )
         current_time = start_dt
 
         initial_balance = round(self.rng.uniform(35.0, 48.0), 8)
         current_input_amount = initial_balance
 
-        current_input_wallet = generate_btc_address(self.rng, "P2WPKH", f"peel_origin_{chain_id}")
+        current_input_wallet = generate_btc_address(
+            self.rng, "P2WPKH", f"peel_origin_{chain_id}"
+        )
         gt_wallets[current_input_wallet] = {
             "label": "suspicious",
             "cluster_id": chain_id,
@@ -345,8 +390,12 @@ class SyntheticBitcoinGenerator:
             fee = round(self.rng.uniform(0.00018, 0.00028), 8)
             change_amount = round(current_input_amount - peeled_amount - fee, 8)
 
-            peel_dest_wallet = generate_btc_address(self.rng, "P2WPKH", f"peel_out_{chain_id}_{hop}")
-            next_change_wallet = generate_btc_address(self.rng, "P2WPKH", f"peel_change_{chain_id}_{hop}")
+            peel_dest_wallet = generate_btc_address(
+                self.rng, "P2WPKH", f"peel_out_{chain_id}_{hop}"
+            )
+            next_change_wallet = generate_btc_address(
+                self.rng, "P2WPKH", f"peel_change_{chain_id}_{hop}"
+            )
 
             gt_wallets[peel_dest_wallet] = {
                 "label": "suspicious",
@@ -384,8 +433,12 @@ class SyntheticBitcoinGenerator:
                 "label": "anomaly",
                 "anomaly_type": "peeling_chain",
                 "pattern_name": "Structured Peeling Chain",
-                "notes": f"Peel hop {hop+1}/{num_peels}: Extracted {peeled_amount} BTC, forwarded change {change_amount} BTC",
-                "entities_involved": [current_input_wallet, peel_dest_wallet, next_change_wallet],
+                "notes": f"Peel hop {hop + 1}/{num_peels}: Extracted {peeled_amount} BTC, forwarded change {change_amount} BTC",
+                "entities_involved": [
+                    current_input_wallet,
+                    peel_dest_wallet,
+                    next_change_wallet,
+                ],
             }
 
             current_input_wallet = next_change_wallet
@@ -393,7 +446,9 @@ class SyntheticBitcoinGenerator:
 
         return txs, {"transactions": gt_txs, "wallets": gt_wallets}
 
-    def _generate_burst_fanout(self, burst_idx: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def _generate_burst_fanout(
+        self, burst_idx: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Scripted Scenario 3:
         Single wallet executes 14 rapid transactions in under 2 minutes,
@@ -403,7 +458,9 @@ class SyntheticBitcoinGenerator:
         gt_txs = {}
         gt_wallets = {}
 
-        source_wallet = generate_btc_address(self.rng, "P2WPKH", f"burst_source_wallet_{burst_idx}")
+        source_wallet = generate_btc_address(
+            self.rng, "P2WPKH", f"burst_source_wallet_{burst_idx}"
+        )
         cluster_id = f"cluster_burst_fanout_{burst_idx}"
         gt_wallets[source_wallet] = {
             "label": "suspicious",
@@ -412,14 +469,17 @@ class SyntheticBitcoinGenerator:
         }
 
         burst_start = self.start_time + timedelta(
-            days=self.rng.uniform(0.8 + burst_idx * 1.1, 1.8 + burst_idx * 1.1) % self.days
+            days=self.rng.uniform(0.8 + burst_idx * 1.1, 1.8 + burst_idx * 1.1)
+            % self.days
         )
         net_profile = next(p for p in NETWORK_PROFILES if p["asn"] == "AS16509")
         fixed_src_ip = generate_ip_address(self.rng, net_profile)
 
         num_burst_txs = 14
         for i in range(num_burst_txs):
-            dest_wallet = generate_btc_address(self.rng, "P2WPKH", f"burst_dest_{burst_idx}_{i}")
+            dest_wallet = generate_btc_address(
+                self.rng, "P2WPKH", f"burst_dest_{burst_idx}_{i}"
+            )
             gt_wallets[dest_wallet] = {
                 "label": "suspicious",
                 "cluster_id": cluster_id,
@@ -455,13 +515,15 @@ class SyntheticBitcoinGenerator:
                 "label": "anomaly",
                 "anomaly_type": "burst_surge",
                 "pattern_name": "High-Velocity Fan-Out Structuring",
-                "notes": f"Burst transaction {i+1}/14 emitted from {fixed_src_ip} within 90-second window",
+                "notes": f"Burst transaction {i + 1}/14 emitted from {fixed_src_ip} within 90-second window",
                 "entities_involved": [source_wallet, dest_wallet, fixed_src_ip],
             }
 
         return txs, {"transactions": gt_txs, "wallets": gt_wallets}
 
-    def _generate_network_correlated_anomaly(self, net_idx: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def _generate_network_correlated_anomaly(
+        self, net_idx: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Scripted Scenario 4:
         Multiple distinct wallets broadcast through the exact same Tor exit node ASN
@@ -523,7 +585,9 @@ class SyntheticBitcoinGenerator:
 
         return txs, {"transactions": gt_txs, "wallets": gt_wallets}
 
-    def _generate_fanin_consolidation(self, fanin_idx: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def _generate_fanin_consolidation(
+        self, fanin_idx: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Scripted Scenario 5:
         Multiple distinct feeder addresses rapidly fund a single aggregator wallet.
@@ -533,7 +597,9 @@ class SyntheticBitcoinGenerator:
         gt_wallets = {}
 
         cluster_id = f"cluster_fanin_consolidation_{fanin_idx}"
-        aggregator_wallet = generate_btc_address(self.rng, "P2TR", f"aggregator_target_{fanin_idx}")
+        aggregator_wallet = generate_btc_address(
+            self.rng, "P2TR", f"aggregator_target_{fanin_idx}"
+        )
         gt_wallets[aggregator_wallet] = {
             "label": "suspicious",
             "cluster_id": cluster_id,
@@ -541,7 +607,8 @@ class SyntheticBitcoinGenerator:
         }
 
         base_time = self.start_time + timedelta(
-            days=self.rng.uniform(1.5 + fanin_idx * 1.0, 2.5 + fanin_idx * 1.0) % self.days
+            days=self.rng.uniform(1.5 + fanin_idx * 1.0, 2.5 + fanin_idx * 1.0)
+            % self.days
         )
         net_profile = next(p for p in NETWORK_PROFILES if p["asn"] == "AS51167")
 
@@ -582,13 +649,15 @@ class SyntheticBitcoinGenerator:
                 "label": "anomaly",
                 "anomaly_type": "fan_in_consolidation",
                 "pattern_name": "Rapid Multi-Source Fund Aggregation",
-                "notes": f"Feeder {i+1}/8 consolidated {out_amount} BTC into central aggregator {aggregator_wallet[:12]}...",
+                "notes": f"Feeder {i + 1}/8 consolidated {out_amount} BTC into central aggregator {aggregator_wallet[:12]}...",
                 "entities_involved": [feeder, aggregator_wallet],
             }
 
         return txs, {"transactions": gt_txs, "wallets": gt_wallets}
 
-    def _generate_normal_traffic(self, count: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def _generate_normal_traffic(
+        self, count: int
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Generate standard background Bitcoin transaction traffic.
         Includes 1-in-2-out (payment + change), 2-in-1-out, and 1-in-1-out transactions.
@@ -597,7 +666,10 @@ class SyntheticBitcoinGenerator:
         gt_txs = {}
 
         for i in range(count):
-            tx_type = self.rng.choices(["1_in_2_out", "1_in_1_out", "2_in_1_out", "1_in_3_out"], weights=[0.65, 0.15, 0.15, 0.05])[0]
+            tx_type = self.rng.choices(
+                ["1_in_2_out", "1_in_1_out", "2_in_1_out", "1_in_3_out"],
+                weights=[0.65, 0.15, 0.15, 0.05],
+            )[0]
 
             # Choose source wallet based on activity tier
             src_wallet_obj = self.rng.choice(self.wallets)
@@ -618,7 +690,9 @@ class SyntheticBitcoinGenerator:
 
             if tx_type == "1_in_2_out":
                 dst_wallet = self.rng.choice(self.wallets)["address"]
-                change_wallet = generate_btc_address(self.rng, script_type, f"change_{i}")
+                change_wallet = generate_btc_address(
+                    self.rng, script_type, f"change_{i}"
+                )
 
                 payment_split = self.rng.uniform(0.2, 0.7)
                 pay_amt = round((base_amt - fee) * payment_split, 8)
@@ -646,7 +720,9 @@ class SyntheticBitcoinGenerator:
             elif tx_type == "1_in_3_out":
                 dst_1 = self.rng.choice(self.wallets)["address"]
                 dst_2 = self.rng.choice(self.wallets)["address"]
-                change_wallet = generate_btc_address(self.rng, script_type, f"change3_{i}")
+                change_wallet = generate_btc_address(
+                    self.rng, script_type, f"change3_{i}"
+                )
 
                 p1 = round((base_amt - fee) * 0.3, 8)
                 p2 = round((base_amt - fee) * 0.3, 8)
@@ -694,7 +770,9 @@ class SyntheticBitcoinGenerator:
         return txs, {"transactions": gt_txs}
 
 
-def export_dataset(transactions: List[Dict[str, Any]], ground_truth: Dict[str, Any], output_dir: Path):
+def export_dataset(
+    transactions: list[dict[str, Any]], ground_truth: dict[str, Any], output_dir: Path
+):
     """Write transactions to CSV and JSON, and ground truth to JSON."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -704,9 +782,20 @@ def export_dataset(transactions: List[Dict[str, Any]], ground_truth: Dict[str, A
 
     # 1. Export CSV (JSON-encode list columns for standard CSV portability)
     fieldnames = [
-        "timestamp", "src_ip", "dst_ip", "src_port", "dst_port", "txid",
-        "input_addresses", "output_addresses", "input_amounts", "output_amounts",
-        "fee", "script_type", "geo_country", "ASN"
+        "timestamp",
+        "src_ip",
+        "dst_ip",
+        "src_port",
+        "dst_port",
+        "txid",
+        "input_addresses",
+        "output_addresses",
+        "input_amounts",
+        "output_amounts",
+        "fee",
+        "script_type",
+        "geo_country",
+        "ASN",
     ]
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -721,7 +810,11 @@ def export_dataset(transactions: List[Dict[str, Any]], ground_truth: Dict[str, A
 
     # 2. Export JSON
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({"schema_version": SCHEMA_VERSION, "transactions": transactions}, f, indent=2)
+        json.dump(
+            {"schema_version": SCHEMA_VERSION, "transactions": transactions},
+            f,
+            indent=2,
+        )
 
     # 3. Export Ground Truth
     with open(gt_path, "w", encoding="utf-8") as f:
@@ -734,13 +827,45 @@ def main():
     parser = argparse.ArgumentParser(
         description="NIRIKSHAK AI — Synthetic Bitcoin Transaction Traffic Dataset Generator (SIH26146)"
     )
-    parser.add_argument("--num-tx", type=int, default=5000, help="Total number of transactions to generate (default: 5000)")
-    parser.add_argument("--num-wallets", type=int, default=1200, help="Size of wallet pool (default: 1200)")
-    parser.add_argument("--num-ips", type=int, default=350, help="Size of observer IP node pool (default: 350)")
-    parser.add_argument("--anomaly-pct", type=float, default=5.0, help="Percentage of transactions in anomalous patterns (default: 5.0)")
-    parser.add_argument("--days", type=int, default=7, help="Time range span in days (default: 7)")
-    parser.add_argument("--output-dir", type=str, default=None, help="Directory to save generated datasets")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible demo generation (default: 42)")
+    parser.add_argument(
+        "--num-tx",
+        type=int,
+        default=5000,
+        help="Total number of transactions to generate (default: 5000)",
+    )
+    parser.add_argument(
+        "--num-wallets",
+        type=int,
+        default=1200,
+        help="Size of wallet pool (default: 1200)",
+    )
+    parser.add_argument(
+        "--num-ips",
+        type=int,
+        default=350,
+        help="Size of observer IP node pool (default: 350)",
+    )
+    parser.add_argument(
+        "--anomaly-pct",
+        type=float,
+        default=5.0,
+        help="Percentage of transactions in anomalous patterns (default: 5.0)",
+    )
+    parser.add_argument(
+        "--days", type=int, default=7, help="Time range span in days (default: 7)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory to save generated datasets",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible demo generation (default: 42)",
+    )
 
     args = parser.parse_args()
 
@@ -783,15 +908,23 @@ def main():
     print("\nDataset Generation Complete!")
     print(f"  • Total Transactions : {summary['total_transactions']}")
     print(f"  • Normal Count       : {summary['normal_count']}")
-    print(f"  • Anomaly Count      : {summary['anomaly_count']} ({summary['anomaly_percentage']}%)")
+    print(
+        f"  • Anomaly Count      : {summary['anomaly_count']} ({summary['anomaly_percentage']}%)"
+    )
     print("  • Anomaly Breakdown  :")
     for k, v in summary["anomaly_breakdown"].items():
         if k != "normal":
             print(f"      - {k.replace('_', ' ').title()}: {v} txs")
-    print(f"\nGenerated Files:")
-    print(f"  [CSV]          : {csv_path.resolve()} ({csv_path.stat().st_size / 1024:.1f} KB)")
-    print(f"  [JSON]         : {json_path.resolve()} ({json_path.stat().st_size / 1024:.1f} KB)")
-    print(f"  [Ground Truth] : {gt_path.resolve()} ({gt_path.stat().st_size / 1024:.1f} KB)")
+    print("\nGenerated Files:")
+    print(
+        f"  [CSV]          : {csv_path.resolve()} ({csv_path.stat().st_size / 1024:.1f} KB)"
+    )
+    print(
+        f"  [JSON]         : {json_path.resolve()} ({json_path.stat().st_size / 1024:.1f} KB)"
+    )
+    print(
+        f"  [Ground Truth] : {gt_path.resolve()} ({gt_path.stat().st_size / 1024:.1f} KB)"
+    )
     print("=" * 70)
 
 

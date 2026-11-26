@@ -40,7 +40,7 @@ backend_dir = Path(__file__).resolve().parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-import networkx as nx
+import networkx as nx  # type: ignore[import-untyped]  # NetworkX has no bundled typing marker.
 import polars as pl
 from app.graph.builder import (
     build_investigation_graph,
@@ -57,7 +57,7 @@ from fastapi.testclient import TestClient
 
 
 def run_cmd(cmd_args, desc):
-    res = subprocess.run(cmd_args, capture_output=True, text=True)
+    res = subprocess.run(cmd_args, check=False, capture_output=True, text=True)
     if res.returncode != 0:
         print(f"FAILED: {desc}")
         print("STDOUT:", res.stdout[-500:])
@@ -120,7 +120,7 @@ def main():
     # 6. NODE TYPES
     # -------------------------------------------------------------
     print("\n[6/24] Verifying Node Types...")
-    node_types = set(data.get("type") for _, data in G.nodes(data=True))
+    node_types = {data.get("type") for _, data in G.nodes(data=True)}
     expected_types = {"wallet", "transaction", "ip", "asn", "country"}
     assert expected_types.issubset(node_types), (
         f"Missing node types: {expected_types - node_types}"
@@ -134,7 +134,7 @@ def main():
     # 7. EDGE TYPES
     # -------------------------------------------------------------
     print("\n[7/24] Verifying Edge Types...")
-    edge_types = set(data.get("type") for _, _, data in G.edges(data=True))
+    edge_types = {data.get("type") for _, _, data in G.edges(data=True)}
     expected_edge_types = {"input", "output", "counterparty", "network_observation"}
     assert expected_edge_types.issubset(edge_types), (
         f"Missing edge types: {expected_edge_types - edge_types}"
@@ -397,7 +397,7 @@ def main():
     # -------------------------------------------------------------
     print("\n[23/24] Verifying Frontend Files are Untouched in Phase 5...")
     git_status = subprocess.run(
-        ["git", "status", "--porcelain"], capture_output=True, text=True
+        ["git", "status", "--porcelain"], check=False, capture_output=True, text=True
     ).stdout
     modified_lines = [l for l in git_status.strip().split("\n") if l.strip()]
     frontend_mods = [l for l in modified_lines if "frontend/" in l]

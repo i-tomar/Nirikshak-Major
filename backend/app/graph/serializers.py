@@ -5,9 +5,9 @@ Transforms internal NetworkX graph structures into frontend-ready,
 validated Pydantic payloads for ForceGraph3D and 2D visualizers.
 """
 
-from typing import Any, Dict, List, Optional, Set
-import networkx as nx
+from typing import Any
 
+import networkx as nx  # type: ignore[import-untyped]  # NetworkX has no bundled typing marker.
 from app.schemas.graph import (
     GraphLink,
     GraphMeta,
@@ -16,15 +16,22 @@ from app.schemas.graph import (
 )
 
 
-def node_to_schema(node_id: str, data: Dict[str, Any]) -> GraphNode:
+def node_to_schema(node_id: str, data: dict[str, Any]) -> GraphNode:
     """Convert NetworkX node data dictionary into GraphNode schema."""
     n_type = data.get("type", "unknown")
     label = data.get("label") or node_id
 
     # Filter out top-level fields from domain metadata
     reserved = {
-        "id", "type", "label", "risk_score", "risk_level",
-        "anomaly_score", "anomaly_percentile", "is_outlier", "alert_id",
+        "id",
+        "type",
+        "label",
+        "risk_score",
+        "risk_level",
+        "anomaly_score",
+        "anomaly_percentile",
+        "is_outlier",
+        "alert_id",
     }
     meta = {k: v for k, v in data.items() if k not in reserved and v is not None}
 
@@ -42,7 +49,7 @@ def node_to_schema(node_id: str, data: Dict[str, Any]) -> GraphNode:
     )
 
 
-def edge_to_schema(source: str, target: str, data: Dict[str, Any]) -> GraphLink:
+def edge_to_schema(source: str, target: str, data: dict[str, Any]) -> GraphLink:
     """Convert NetworkX edge data into GraphLink schema."""
     e_type = data.get("type", "related")
     reserved = {"source", "target", "type"}
@@ -58,18 +65,18 @@ def edge_to_schema(source: str, target: str, data: Dict[str, Any]) -> GraphLink:
 
 def subgraph_to_response_payload(
     subgraph: nx.DiGraph,
-    center_id: Optional[str] = None,
-    hops: Optional[int] = None,
+    center_id: str | None = None,
+    hops: int | None = None,
     truncated: bool = False,
-    query_time_ms: Optional[float] = None,
-    filter_applied: Optional[Dict[str, Any]] = None,
+    query_time_ms: float | None = None,
+    filter_applied: dict[str, Any] | None = None,
 ) -> GraphSubgraphResponse:
     """
     Serialize a NetworkX subgraph into a validated GraphSubgraphResponse.
     Ensures all links strictly reference nodes present in the nodes list.
     """
-    node_schemas: List[GraphNode] = []
-    valid_node_ids: Set[str] = set()
+    node_schemas: list[GraphNode] = []
+    valid_node_ids: set[str] = set()
 
     for n_id, data in subgraph.nodes(data=True):
         node_schemas.append(node_to_schema(n_id, data))
@@ -82,7 +89,7 @@ def subgraph_to_response_payload(
 
     node_schemas.sort(key=sort_key)
 
-    link_schemas: List[GraphLink] = []
+    link_schemas: list[GraphLink] = []
     for u, v, data in subgraph.edges(data=True):
         if u in valid_node_ids and v in valid_node_ids:
             link_schemas.append(edge_to_schema(u, v, data))

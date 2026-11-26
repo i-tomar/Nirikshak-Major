@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import polars as pl
-from scipy.stats import rankdata
+from scipy.stats import rankdata  # type: ignore[import-untyped]  # SciPy stubs are not pinned.
 
 
 @dataclass(frozen=True)

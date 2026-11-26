@@ -52,7 +52,7 @@ def run_full_analysis() -> AnalysisSummary:
             raise ValueError("The normalized dataset contains no wallets")
         anomalies = AnomalyModel().fit_score(features)
         leads = rank_leads(features, anomalies)
-        median_count = float(features["transaction_count"].median())
+        median_count = float(str(features["transaction_count"].median() or 0.0))
         leads = (
             leads.with_row_index("rank", offset=1)
             .with_columns(

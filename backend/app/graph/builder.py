@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import networkx as nx
+import networkx as nx  # type: ignore[import-untyped]  # NetworkX has no bundled typing marker.
 import polars as pl
 from app.pipeline.storage import (
     get_parquet_paths,
@@ -129,7 +129,7 @@ def build_investigation_graph(
                     "alert_id": str(row["alert_id"]),
                     "rank": int(row["rank"]),
                 }
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError, pl.exceptions.PolarsError):
             analysis_by_wallet = {}
 
     G = nx.DiGraph()
@@ -391,7 +391,7 @@ def build_investigation_graph(
             clean_data = {k: ("" if val is None else val) for k, val in data.items()}
             clean_G.add_edge(u, v, **clean_data)
         nx.write_graphml(clean_G, str(g_paths["graphml"]))
-    except Exception:
+    except (OSError, ValueError, TypeError, nx.NetworkXError):
         logging.getLogger(__name__).warning("GraphML export failed")
 
     _MEMORY_GRAPH_CACHE = G
@@ -423,7 +423,7 @@ def load_or_build_graph(
             _MEMORY_GRAPH_CACHE = G
             _MEMORY_STATS_CACHE = stats
             return G
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError, nx.NetworkXError):
             logging.getLogger(__name__).warning("Rebuilding unreadable graph cache")
 
     G, _ = build_investigation_graph(
@@ -448,7 +448,7 @@ def get_graph_stats(graph_dir: str | Path | None = None) -> dict[str, Any]:
                 stats = json.load(f)
             _MEMORY_STATS_CACHE = stats
             return stats
-        except Exception:
+        except (OSError, ValueError, TypeError):
             logging.getLogger(__name__).warning(
                 "Rebuilding unreadable graph statistics"
             )

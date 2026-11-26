@@ -8,11 +8,11 @@ Provides high-performance analytical queries over the in-memory NetworkX graph:
 - Shortest Path: Investigative connectivity tracing with causal disclaimers.
 """
 
-from collections import deque
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
-import networkx as nx
+from collections import deque
+from typing import Any
 
+import networkx as nx  # type: ignore[import-untyped]  # NetworkX has no bundled typing marker.
 from app.graph.serializers import node_to_schema, subgraph_to_response_payload
 from app.schemas.graph import (
     GraphLink,
@@ -24,7 +24,7 @@ from app.schemas.graph import (
 )
 
 
-def resolve_node_id(graph: nx.DiGraph, query: str) -> Optional[str]:
+def resolve_node_id(graph: nx.DiGraph, query: str) -> str | None:
     """
     Resolve raw or prefixed user input to a canonical node_id in the graph.
     Tries direct lookup, then checks type prefixes (wallet, tx, ip, asn, country).
@@ -61,9 +61,9 @@ def search_entities(
     if not clean_q:
         return GraphSearchResponse(query=query, total_matches=0, results=[])
 
-    exact_matches: List[SearchResultItem] = []
-    prefix_matches: List[SearchResultItem] = []
-    sub_matches: List[SearchResultItem] = []
+    exact_matches: list[SearchResultItem] = []
+    prefix_matches: list[SearchResultItem] = []
+    sub_matches: list[SearchResultItem] = []
 
     for n_id, data in graph.nodes(data=True):
         n_type = data.get("type", "unknown")
@@ -88,8 +88,10 @@ def search_entities(
                 risk_score=data.get("risk_score"),
                 risk_level=data.get("risk_level"),
                 metadata={
-                    k: v for k, v in data.items()
-                    if k not in {"id", "type", "label", "risk_score", "risk_level"} and v is not None
+                    k: v
+                    for k, v in data.items()
+                    if k not in {"id", "type", "label", "risk_score", "risk_level"}
+                    and v is not None
                 },
             )
             if match_field == "exact":
@@ -119,7 +121,7 @@ def search_entities(
     )
 
 
-def get_entity_details(graph: nx.DiGraph, entity_id: str) -> Optional[Dict[str, Any]]:
+def get_entity_details(graph: nx.DiGraph, entity_id: str) -> dict[str, Any] | None:
     """Retrieve complete metadata and connection metrics for a single entity."""
     canonical_id = resolve_node_id(graph, entity_id)
     if not canonical_id or not graph.has_node(canonical_id):
@@ -143,8 +145,18 @@ def get_entity_details(graph: nx.DiGraph, entity_id: str) -> Optional[Dict[str, 
         "out_degree": len(out_edges),
         "total_degree": len(in_edges) + len(out_edges),
         "attributes": {
-            k: v for k, v in data.items()
-            if k not in {"id", "type", "label", "risk_score", "risk_level", "anomaly_score", "alert_id"}
+            k: v
+            for k, v in data.items()
+            if k
+            not in {
+                "id",
+                "type",
+                "label",
+                "risk_score",
+                "risk_level",
+                "anomaly_score",
+                "alert_id",
+            }
         },
     }
 
@@ -154,9 +166,9 @@ def get_neighborhood_subgraph(
     entity_id: str,
     hops: int = 1,
     max_nodes: int = 100,
-    min_risk_score: Optional[float] = None,
-    risk_level: Optional[str] = None,
-) -> Optional[GraphSubgraphResponse]:
+    min_risk_score: float | None = None,
+    risk_level: str | None = None,
+) -> GraphSubgraphResponse | None:
     """
     Perform a bounded BFS traversal around entity_id up to `hops` (clamped to 1–3).
     Applies max_nodes bounds and optional risk score/tier filtering on wallet nodes.
@@ -175,7 +187,7 @@ def get_neighborhood_subgraph(
     # Undirected view for neighborhood navigation so in-edges and out-edges are both explored
     undirected_view = graph.to_undirected(as_view=True)
 
-    visited_nodes: Set[str] = {canonical_id}
+    visited_nodes: set[str] = {canonical_id}
     queue: deque = deque([(canonical_id, 0)])
 
     while queue and len(visited_nodes) < safe_max_nodes:
@@ -194,13 +206,11 @@ def get_neighborhood_subgraph(
                     w_risk = nbr_data.get("risk_score")
                     w_level = nbr_data.get("risk_level")
 
-                    if min_risk_score is not None:
-                        if w_risk is None or w_risk < min_risk_score:
-                            continue
+                    if min_risk_score is not None and (w_risk is None or w_risk < min_risk_score):
+                        continue
 
-                    if clean_risk_level is not None:
-                        if not w_level or w_level.upper() != clean_risk_level:
-                            continue
+                    if clean_risk_level is not None and (not w_level or w_level.upper() != clean_risk_level):
+                        continue
 
                 visited_nodes.add(nbr)
                 queue.append((nbr, curr_dist + 1))
@@ -212,7 +222,7 @@ def get_neighborhood_subgraph(
     sub_G = graph.subgraph(visited_nodes).copy()
     query_time = round((time.time() - t0) * 1000, 2)
 
-    filter_info = {}
+    filter_info: dict[str, float | str] = {}
     if min_risk_score is not None:
         filter_info["min_risk_score"] = min_risk_score
     if clean_risk_level is not None:
@@ -233,7 +243,7 @@ def generate_edge_explanation(
     v: str,
     edge_type: str,
     direction_reversed: bool,
-    edge_data: Dict[str, Any],
+    edge_data: dict[str, Any],
     graph: nx.DiGraph,
 ) -> str:
     """Generate a deterministic human-readable explanation of an edge transition in the path."""
@@ -258,24 +268,32 @@ def generate_edge_explanation(
         return "Wallets are linked through observed transaction flow."
 
     elif edge_type == "network_observation":
-        if (u_type == "transaction" and v_type == "ip") or (v_type == "transaction" and u_type == "ip"):
+        if (u_type == "transaction" and v_type == "ip") or (
+            v_type == "transaction" and u_type == "ip"
+        ):
             if not direction_reversed:
                 return "Transaction is associated with an observed network broadcast."
             else:
                 return "Observed network broadcast associated with this transaction."
-        elif (u_type == "ip" and v_type == "asn") or (v_type == "ip" and u_type == "asn"):
+        elif (u_type == "ip" and v_type == "asn") or (
+            v_type == "ip" and u_type == "asn"
+        ):
             if not direction_reversed:
                 return "Observed IP maps to this Autonomous System."
             else:
                 return "Autonomous System routing associated with this IP observation."
-        elif (u_type == "ip" and v_type == "country") or (v_type == "ip" and u_type == "country"):
+        elif (u_type == "ip" and v_type == "country") or (
+            v_type == "ip" and u_type == "country"
+        ):
             if not direction_reversed:
                 return "Observed IP maps to this geographic jurisdiction."
             else:
                 return "Geographic jurisdiction associated with this IP observation."
         else:
             if not direction_reversed:
-                return "Entities are linked through observed network broadcast telemetry."
+                return (
+                    "Entities are linked through observed network broadcast telemetry."
+                )
             else:
                 return "Observed network broadcast telemetry connecting entities in reverse direction."
 
@@ -291,7 +309,7 @@ def _bfs_shortest_path(
     source: str,
     target: str,
     max_hops: int = 10,
-) -> Optional[List[str]]:
+) -> list[str] | None:
     """
     Breadth-first search for the shortest path between source and target,
     bounded strictly by max_hops. Returns ordered list of node IDs if found.
@@ -301,7 +319,7 @@ def _bfs_shortest_path(
     if not graph.has_node(source) or not graph.has_node(target):
         return None
 
-    visited = {source: None}
+    visited: dict[str, str | None] = {source: None}
     queue = deque([(source, 0)])
 
     while queue:
@@ -316,7 +334,7 @@ def _bfs_shortest_path(
                 visited[neighbor] = curr
                 if neighbor == target:
                     path = [target]
-                    step = curr
+                    step: str | None = curr
                     while step is not None:
                         path.append(step)
                         step = visited[step]
@@ -341,7 +359,12 @@ def find_shortest_path(
     can_source = resolve_node_id(graph, source_id)
     can_target = resolve_node_id(graph, target_id)
 
-    if not can_source or not can_target or not graph.has_node(can_source) or not graph.has_node(can_target):
+    if (
+        not can_source
+        or not can_target
+        or not graph.has_node(can_source)
+        or not graph.has_node(can_target)
+    ):
         return GraphPathResponse(
             found=False,
             source=source_id,
@@ -362,7 +385,9 @@ def find_shortest_path(
     if not path_nodes:
         traversal_mode = "undirected"
         undirected_G = graph.to_undirected(as_view=True)
-        path_nodes = _bfs_shortest_path(undirected_G, can_source, can_target, max_hops=max_hops)
+        path_nodes = _bfs_shortest_path(
+            undirected_G, can_source, can_target, max_hops=max_hops
+        )
 
     if not path_nodes:
         return GraphPathResponse(
@@ -381,8 +406,8 @@ def find_shortest_path(
     nodes = [node_to_schema(n_id, graph.nodes[n_id]) for n_id in path_nodes]
 
     # Build sequential steps and consecutive path links
-    steps: List[PathStep] = []
-    links: List[GraphLink] = []
+    steps: list[PathStep] = []
+    links: list[GraphLink] = []
     reserved = {"source", "target", "type"}
 
     for i in range(len(path_nodes) - 1):
@@ -406,8 +431,14 @@ def find_shortest_path(
             actual_target = v
 
         e_type = edge_data.get("type", "relationship")
-        meta = {k: val for k, val in edge_data.items() if k not in reserved and val is not None}
-        explanation = generate_edge_explanation(u, v, e_type, direction_reversed, edge_data, graph)
+        meta = {
+            k: val
+            for k, val in edge_data.items()
+            if k not in reserved and val is not None
+        }
+        explanation = generate_edge_explanation(
+            u, v, e_type, direction_reversed, edge_data, graph
+        )
 
         step = PathStep(
             step_index=i + 1,

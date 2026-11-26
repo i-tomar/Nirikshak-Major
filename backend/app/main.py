@@ -14,6 +14,7 @@ from app.routers import (
 )
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
@@ -91,6 +92,16 @@ async def handle_http_error(request: Request, exc: HTTPException):
     if exc.status_code >= 500:
         return server_error(request, exc)
     return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Do not echo attacker-supplied values from Pydantic validation errors."""
+    return JSONResponse(
+        status_code=422, content={"detail": "Invalid request parameters"}
+    )
 
 
 @app.exception_handler(Exception)

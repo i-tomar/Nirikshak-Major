@@ -8,6 +8,7 @@ from app.schemas.clustering import (
     ClusterDetailResponse,
     ClusterProfilesResponse,
     SimilarWalletsResponse,
+    WalletClusterAssignment,
     WalletClusterDetailResponse,
 )
 from fastapi import APIRouter, HTTPException, Query
@@ -75,5 +76,5 @@ def detail(
         returned_count=len(page),
         offset=offset,
         limit=limit,
-        wallets=page,
+        wallets=[WalletClusterAssignment.model_validate(row) for row in page],
     )

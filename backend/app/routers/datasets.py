@@ -3,7 +3,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from app.graph.builder import (
     build_investigation_graph,
@@ -154,12 +154,12 @@ def process_dataset_end_to_end(
             try:
                 with open(MANIFEST_FILE, "w", encoding="utf-8") as mf:
                     json.dump(manifest_payload, mf, indent=2)
-            except Exception:
+            except (OSError, TypeError, ValueError):
                 logging.getLogger(__name__).warning(
                     "Could not persist dataset manifest"
                 )
 
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pipeline_status = "FAILED"
             logging.getLogger(__name__).exception("Dataset processing failed")
             stage_timings["error"] = "Dataset processing failed"
@@ -185,9 +185,9 @@ def process_dataset_end_to_end(
     "/upload", response_model=DatasetUploadResponse, status_code=status.HTTP_200_OK
 )
 async def upload_dataset(
-    file: UploadFile = File(
-        ..., description="Bitcoin transaction dataset (.csv or .json)"
-    ),
+    file: Annotated[
+        UploadFile, File(description="Bitcoin transaction dataset (.csv or .json)")
+    ],
 ):
     """
     Ingest, validate, normalize, analyze, cluster, and compile the graph end-to-end
@@ -328,7 +328,7 @@ def get_active_dataset_status():
             with open(MANIFEST_FILE, "r", encoding="utf-8") as mf:
                 data = json.load(mf)
                 return ActiveDatasetStatus(**data)
-        except Exception:
+        except (OSError, ValueError, TypeError):
             logging.getLogger(__name__).warning("Could not read dataset manifest")
 
     # Fallback: check if normalized and analysis data exist on disk
@@ -358,7 +358,7 @@ def get_active_dataset_status():
                 graph_edges=graph_stats.get("total_edges", 0),
                 analyzed_at=analysis_summary.get("analyzed_at"),
             )
-        except Exception:
+        except (OSError, ValueError, TypeError):
             logging.getLogger(__name__).warning("Could not read analysis summary")
 
     return ActiveDatasetStatus(has_dataset=False)

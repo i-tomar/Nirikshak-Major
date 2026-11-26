@@ -76,11 +76,7 @@ def parse_csv_content(
                 "output_amounts": parse_list_field(
                     row.get("output_amounts", "[]"), float
                 ),
-                "fee": float(
-                    row.get("fee_btc")
-                    if row.get("fee_btc") is not None and row.get("fee_btc") != ""
-                    else (row.get("fee") or 0.0)
-                ),
+                "fee": float(row.get("fee_btc") or row.get("fee") or 0.0),
                 "script_type": (row.get("script_type") or "P2WPKH").strip(),
                 "geo_country": (row.get("geo_country") or "US").strip(),
                 "ASN": str(
@@ -113,9 +109,15 @@ def parse_json_content(
     Accepts either a JSON array of records or a dict with a 'transactions' key.
     """
     data = json.loads(content)
-    raw_list = data if isinstance(data, list) else data.get("transactions", [])
+    raw_list = (
+        data
+        if isinstance(data, list)
+        else data.get("transactions", [])
+        if isinstance(data, dict)
+        else None
+    )
     if not isinstance(raw_list, list):
-        raise ValueError(
+        raise TypeError(
             "JSON must contain an array of transaction records or an object with a 'transactions' key."
         )
 
