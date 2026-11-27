@@ -2,22 +2,24 @@ import logging
 import os
 from uuid import uuid4
 
-from app.routers import (
-    alerts,
-    analysis,
-    clusters,
-    datasets,
-    graph,
-    investigations,
-    models,
-    stats,
-)
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
+
+from app.routers import (
+    alerts,
+    analysis,
+    clusters,
+    correlations,
+    datasets,
+    graph,
+    investigations,
+    models,
+    stats,
+)
 
 docs_enabled = os.getenv("NIRIKSHAK_ENABLE_DOCS") == "1"
 origins = os.getenv(
@@ -55,6 +57,9 @@ app.include_router(
     investigations.router, prefix="/api/investigations", tags=["Investigations"]
 )
 app.include_router(clusters.router, prefix="/api/clusters", tags=["Clusters"])
+app.include_router(
+    correlations.router, prefix="/api/correlations", tags=["Correlations"]
+)
 app.include_router(models.router, prefix="/api/model", tags=["Model Analytics"])
 
 

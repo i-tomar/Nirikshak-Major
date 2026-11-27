@@ -17,6 +17,7 @@ from typing import Any
 
 import networkx as nx  # type: ignore[import-untyped]  # NetworkX has no bundled typing marker.
 import polars as pl
+
 from app.pipeline.storage import (
     get_parquet_paths,
     has_normalized_data,
@@ -335,7 +336,30 @@ def build_investigation_graph(
                     )
 
     # -------------------------------------------------------------
-    # 4. COMPUTE STRUCTURAL METRICS & SERIALIZE
+    # 4. TYPED WALLET TO NETWORK CORRELATIONS
+    if paths_norm["correlations"].exists():
+        correlations = pl.read_parquet(paths_norm["correlations"])
+        for row in correlations.sort(
+            ["wallet_address", "target_type", "target_id", "confidence"]
+        ).iter_rows(named=True):
+            wallet_node = f"wallet:{row['wallet_address']}"
+            target_node = f"{row['target_type']}:{row['target_id']}"
+            if not G.has_node(wallet_node) or not G.has_node(target_node):
+                continue
+            G.add_edge(
+                wallet_node,
+                target_node,
+                type="correlation",
+                rule_name=str(row["rule_name"]),
+                rule_version=str(row["rule_version"]),
+                evidence_type=str(row["evidence_type"]),
+                confidence=float(row["confidence"]),
+                is_direct=bool(row["is_direct"]),
+                timestamp=str(row["observation_timestamp"]),
+                caveat=str(row["caveat"]),
+            )
+
+    # 5. COMPUTE STRUCTURAL METRICS & SERIALIZE
     # -------------------------------------------------------------
     node_type_counts: dict[str, int] = defaultdict(int)
     for _, data in G.nodes(data=True):
@@ -363,6 +387,7 @@ def build_investigation_graph(
         "output_edges": edge_type_counts["output"],
         "counterparty_edges": edge_type_counts["counterparty"],
         "network_observation_edges": edge_type_counts["network_observation"],
+        "correlation_edges": edge_type_counts["correlation"],
         "density": density,
         "is_deterministic": True,
         "built_at": datetime.now(UTC).isoformat(),

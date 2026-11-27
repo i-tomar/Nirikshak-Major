@@ -9,10 +9,11 @@ from typing import TypedDict
 import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]  # PyArrow has no bundled typing marker.
 import pyarrow.parquet as pq  # type: ignore[import-untyped]  # PyArrow has no bundled typing marker.
+from defusedxml.ElementTree import iterparse  # type: ignore[import-untyped]  # defusedxml lacks a typing marker.
+
 from app.pipeline.geoip import GeoIPResolver
 from app.pipeline.loader import MAX_FIELD_LENGTH, MAX_NESTING_DEPTH, _bounded
 from app.pipeline.storage import get_parquet_paths
-from defusedxml.ElementTree import iterparse  # type: ignore[import-untyped]  # defusedxml lacks a typing marker.
 
 READ_BYTES = 1024 * 1024
 
@@ -111,7 +112,11 @@ def xml_to_ndjson(source: Path, destination: Path) -> None:
                 row: dict[str, object] = {}
                 for child in element:
                     if child.tag in list_names:
-                        value: object = [part.text or "" for part in child] if len(child) else [child.text or ""]
+                        value: object = (
+                            [part.text or "" for part in child]
+                            if len(child)
+                            else [child.text or ""]
+                        )
                         if child.tag in row:
                             previous = row[child.tag]
                             if isinstance(previous, list) and isinstance(value, list):
@@ -221,13 +226,13 @@ def ingest_file(
         if not required <= names:
             raise ValueError("Dataset is missing required columns")
         optional = {
-            "src_port": 'ALTER TABLE raw ADD COLUMN src_port VARCHAR',
-            "dst_port": 'ALTER TABLE raw ADD COLUMN dst_port VARCHAR',
-            "fee": 'ALTER TABLE raw ADD COLUMN fee VARCHAR',
-            "fee_btc": 'ALTER TABLE raw ADD COLUMN fee_btc VARCHAR',
-            "script_type": 'ALTER TABLE raw ADD COLUMN script_type VARCHAR',
-            "geo_country": 'ALTER TABLE raw ADD COLUMN geo_country VARCHAR',
-            "asn": 'ALTER TABLE raw ADD COLUMN ASN VARCHAR',
+            "src_port": "ALTER TABLE raw ADD COLUMN src_port VARCHAR",
+            "dst_port": "ALTER TABLE raw ADD COLUMN dst_port VARCHAR",
+            "fee": "ALTER TABLE raw ADD COLUMN fee VARCHAR",
+            "fee_btc": "ALTER TABLE raw ADD COLUMN fee_btc VARCHAR",
+            "script_type": "ALTER TABLE raw ADD COLUMN script_type VARCHAR",
+            "geo_country": "ALTER TABLE raw ADD COLUMN geo_country VARCHAR",
+            "asn": "ALTER TABLE raw ADD COLUMN ASN VARCHAR",
         }
         for name, statement in optional.items():
             if name not in names:
@@ -327,6 +332,10 @@ def ingest_file(
         if counts is None:
             raise RuntimeError("Ingestion count unavailable")
         connection.close()
+        if int(counts[1]) > 0:
+            from app.pipeline.correlation import build_correlations
+
+            build_correlations(paths["transactions"].parent)
         selected = paths if int(counts[1]) > 0 else {"rejected": paths["rejected"]}
         for name, staged_path in selected.items():
             staged_path.replace(target_paths[name])
