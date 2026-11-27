@@ -4,13 +4,12 @@ import json
 from pathlib import Path
 
 import polars as pl
-from fastapi.testclient import TestClient
-
 from app.graph.builder import build_investigation_graph
 from app.main import app
 from app.pipeline.correlation import build_correlations
 from app.pipeline.storage import get_parquet_paths
 from app.pipeline.streaming import ingest_file
+from fastapi.testclient import TestClient
 
 
 def _tables(root: Path) -> dict[str, Path]:
@@ -104,10 +103,12 @@ def test_window_duplicate_and_shared_links(tmp_path: Path):
     )
     assert (
         float(
-            wa.filter(
-                (pl.col("rule_name") == "first_seen_relay")
-                & (pl.col("target_id") == "198.51.100.1")
-            )["confidence"].max()
+            str(
+                wa.filter(
+                    (pl.col("rule_name") == "first_seen_relay")
+                    & (pl.col("target_id") == "198.51.100.1")
+                )["confidence"].max()
+            )
         )
         <= 0.30
     )

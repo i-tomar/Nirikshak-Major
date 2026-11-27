@@ -2,13 +2,6 @@ import logging
 import os
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException
-
 from app.routers import (
     alerts,
     analysis,
@@ -20,6 +13,12 @@ from app.routers import (
     models,
     stats,
 )
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 docs_enabled = os.getenv("NIRIKSHAK_ENABLE_DOCS") == "1"
 origins = os.getenv(

@@ -9,11 +9,10 @@ from typing import TypedDict
 import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]  # PyArrow has no bundled typing marker.
 import pyarrow.parquet as pq  # type: ignore[import-untyped]  # PyArrow has no bundled typing marker.
-from defusedxml.ElementTree import iterparse  # type: ignore[import-untyped]  # defusedxml lacks a typing marker.
-
 from app.pipeline.geoip import GeoIPResolver
 from app.pipeline.loader import MAX_FIELD_LENGTH, MAX_NESTING_DEPTH, _bounded
 from app.pipeline.storage import get_parquet_paths
+from defusedxml.ElementTree import iterparse  # type: ignore[import-untyped]  # defusedxml lacks a typing marker.
 
 READ_BYTES = 1024 * 1024
 

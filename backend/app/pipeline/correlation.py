@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 import duckdb
-
 from app.pipeline.storage import get_parquet_paths
 
 RULE_VERSION = "1"

@@ -3,9 +3,8 @@
 from typing import Any
 
 import duckdb
-from fastapi import APIRouter, HTTPException, Query
-
 from app.pipeline.storage import get_parquet_paths
+from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter()
 

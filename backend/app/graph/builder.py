@@ -17,7 +17,6 @@ from typing import Any
 
 import networkx as nx  # type: ignore[import-untyped]  # NetworkX has no bundled typing marker.
 import polars as pl
-
 from app.pipeline.storage import (
     get_parquet_paths,
     has_normalized_data,
