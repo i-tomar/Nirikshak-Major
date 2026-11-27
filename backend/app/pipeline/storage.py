@@ -38,6 +38,7 @@ def get_parquet_paths(storage_dir: str | Path | None = None) -> dict[str, Path]:
         "tx_outputs": sdir / "tx_outputs.parquet",
         "rejected": sdir / "rejected.parquet",
         "ip_enrichment": sdir / "ip_enrichment.parquet",
+        "correlations": sdir / "correlations.parquet",
     }
 
 
@@ -56,6 +57,13 @@ def save_normalized_tables(
             target_path = paths[table_name]
             df.write_parquet(target_path, compression="zstd")
             written[table_name] = str(target_path)
+    if all(
+        name in tables
+        for name in ("transactions", "network_observations", "tx_inputs", "tx_outputs")
+    ):
+        from app.pipeline.correlation import build_correlations
+
+        build_correlations(storage_dir)
     return written
 
 

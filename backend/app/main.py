@@ -6,6 +6,7 @@ from app.routers import (
     alerts,
     analysis,
     clusters,
+    correlations,
     datasets,
     graph,
     investigations,
@@ -55,6 +56,9 @@ app.include_router(
     investigations.router, prefix="/api/investigations", tags=["Investigations"]
 )
 app.include_router(clusters.router, prefix="/api/clusters", tags=["Clusters"])
+app.include_router(
+    correlations.router, prefix="/api/correlations", tags=["Correlations"]
+)
 app.include_router(models.router, prefix="/api/model", tags=["Model Analytics"])
 
 
