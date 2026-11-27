@@ -11,6 +11,7 @@ from collections import defaultdict
 from typing import TypedDict
 
 import polars as pl
+from app.pipeline.geoip import GeoIPResolver
 from app.schemas.transaction import BitcoinTransactionRecord
 
 
@@ -176,8 +177,66 @@ def normalize_dataset(
     - wallets
     - network_observations
     """
+    inputs = []
+    outputs = []
+    source_metadata: dict[str, tuple[str | None, str | None]] = {}
+    distinct_ips: set[str] = set()
+    for record in records:
+        for address, amount in zip(
+            record.input_addresses, record.input_amounts, strict=True
+        ):
+            inputs.append(
+                {
+                    "txid": record.txid,
+                    "timestamp": record.timestamp,
+                    "wallet_address": address,
+                    "amount": amount,
+                }
+            )
+        for address, amount in zip(
+            record.output_addresses, record.output_amounts, strict=True
+        ):
+            outputs.append(
+                {
+                    "txid": record.txid,
+                    "timestamp": record.timestamp,
+                    "wallet_address": address,
+                    "amount": amount,
+                }
+            )
+        source_metadata[record.src_ip] = (record.geo_country, record.ASN)
+        distinct_ips.update((record.src_ip, record.dst_ip))
+    io_schema = {
+        "txid": pl.Utf8,
+        "timestamp": pl.Utf8,
+        "wallet_address": pl.Utf8,
+        "amount": pl.Float64,
+    }
+    rejected_schema = {
+        "line": pl.Int64,
+        "txid": pl.Utf8,
+        "error": pl.Utf8,
+        "source_file_name": pl.Utf8,
+        "source_sha256": pl.Utf8,
+    }
+    with GeoIPResolver() as resolver:
+        enriched = [
+            resolver.lookup(ip, *source_metadata.get(ip, (None, None)))
+            for ip in sorted(distinct_ips)
+        ]
+    enrichment_schema = {
+        "ip": pl.Utf8,
+        "country": pl.Utf8,
+        "asn": pl.Utf8,
+        "as_org": pl.Utf8,
+        "source": pl.Utf8,
+    }
     return {
         "transactions": normalize_transactions(records),
         "wallets": normalize_wallets(records),
         "network_observations": normalize_network_observations(records),
+        "tx_inputs": pl.DataFrame(inputs, schema=io_schema),
+        "tx_outputs": pl.DataFrame(outputs, schema=io_schema),
+        "rejected": pl.DataFrame(schema=rejected_schema),
+        "ip_enrichment": pl.DataFrame(enriched, schema=enrichment_schema),
     }

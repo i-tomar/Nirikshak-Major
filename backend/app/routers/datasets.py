@@ -1,10 +1,16 @@
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime
-from pathlib import Path
+from hashlib import sha256
+from pathlib import Path, PureWindowsPath
+from tempfile import TemporaryDirectory
 from typing import Annotated, Any
+from uuid import uuid4
 
+import duckdb
+import polars as pl
 from app.graph.builder import (
     build_investigation_graph,
     get_graph_stats,
@@ -18,23 +24,86 @@ from app.ml.analyzer import (
 )
 from app.pipeline.loader import (
     calculate_dataset_summary,
-    parse_csv_content,
-    parse_json_content,
 )
 from app.pipeline.normalizer import normalize_dataset
 from app.pipeline.storage import (
     get_dataset_analytics_summary,
+    get_parquet_paths,
     get_storage_dir,
     has_normalized_data,
     save_normalized_tables,
 )
+from app.pipeline.streaming import IngestResult, ingest_file
 from app.schemas.transaction import (
     ActiveDatasetStatus,
     BitcoinTransactionRecord,
+    DatasetSummary,
     DatasetUploadResponse,
     StorageInfo,
 )
+from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]  # defusedxml has no typing marker.
+from defusedxml.ElementTree import ParseError  # type: ignore[import-untyped]  # defusedxml safely raises this parser error.
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+ARCHIVE_SIGNATURES = (
+    b"PK\x03\x04",
+    b"PK\x05\x06",
+    b"\x1f\x8b",
+    b"7z\xbc\xaf\x27\x1c",
+    b"Rar!",
+)
+ALLOWED_UPLOAD_TYPES = {
+    ".csv": {"text/csv", "application/vnd.ms-excel", "text/plain"},
+    ".json": {"application/json", "text/json"},
+    ".ndjson": {"application/x-ndjson", "application/json"},
+    ".xml": {"application/xml", "text/xml"},
+}
+
+
+def upload_limit_bytes() -> int:
+    """Read a configurable positive MiB upload limit."""
+    raw = os.getenv("NIRIKSHAK_UPLOAD_MAX_MB", "500")
+    try:
+        size = int(raw)
+    except ValueError as exc:
+        raise ValueError("NIRIKSHAK_UPLOAD_MAX_MB must be a positive integer") from exc
+    if size < 1:
+        raise ValueError("NIRIKSHAK_UPLOAD_MAX_MB must be positive")
+    return size * 1024 * 1024
+
+
+def sniff_upload(header: bytes, suffix: str) -> None:
+    """Reject archives, binary input and a mismatch with the declared extension."""
+    if (
+        any(signature in header for signature in ARCHIVE_SIGNATURES)
+        or header[257:262] == b"ustar"
+    ):
+        raise HTTPException(status_code=400, detail="Archive uploads are not supported")
+    if b"\x00" in header:
+        raise HTTPException(
+            status_code=400, detail="Binary dataset content is not supported"
+        )
+    try:
+        text = header.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail="Dataset must be UTF-8 text"
+        ) from exc
+    first = text.lstrip()
+    if suffix == ".csv":
+        matches = (
+            "txid" in first.splitlines()[0].lower() and "," in first.splitlines()[0]
+        )
+    elif suffix in {".json", ".ndjson"}:
+        matches = first.startswith(("{", "["))
+    else:
+        matches = first.startswith("<") and not first.startswith("<!DOCTYPE")
+    if not matches:
+        raise HTTPException(
+            status_code=400, detail="Dataset content does not match its format"
+        )
+
 
 router = APIRouter()
 
@@ -181,6 +250,114 @@ def process_dataset_end_to_end(
     )
 
 
+def respond_to_streamed_upload(
+    result: IngestResult, filename: str, detected_format: str, elapsed_ms: float
+) -> DatasetUploadResponse:
+    """Expose measured data-layer results and run small-dataset analysis."""
+    total = int(result["total_rows"])
+    valid = int(result["valid_rows"])
+    rejected = int(result["rejected_rows"])
+    digest = str(result["source_sha256"])
+    geoip_sources = result["geoip_sources"]
+    logging.getLogger(__name__).info("Upload GeoIP sources: %s", geoip_sources)
+    paths = get_parquet_paths()
+    rejected_preview = pl.read_parquet(paths["rejected"]).head(50).to_dicts()
+    if not valid:
+        return DatasetUploadResponse(
+            filename=filename,
+            detected_format=detected_format,
+            total_rows=total,
+            valid_rows=0,
+            rejected_rows=rejected,
+            validation_status="FAILED",
+            rejected_details=rejected_preview,
+            pipeline_status="FAILED",
+            source_sha256=digest,
+            geoip_sources=geoip_sources,
+            stage_timings_ms={"validation_ms": elapsed_ms},
+            analysis_summary=None,
+            graph_summary=None,
+        )
+    analytics = get_dataset_analytics_summary()
+    summary = DatasetSummary(
+        total_transactions=valid,
+        unique_wallets=int(analytics["wallets"]),
+        unique_ips=int(analytics["unique_ips"]),
+        total_btc_volume=float(analytics["total_btc"]),
+        time_range_start=str(analytics["time_range"]["start"]),
+        time_range_end=str(analytics["time_range"]["end"]),
+    )
+    storage = StorageInfo(
+        normalized=True,
+        storage_dir=str(get_storage_dir()),
+        transactions_file=str(paths["transactions"]),
+        wallets_file=str(paths["wallets"]),
+        network_observations_file=str(paths["network_observations"]),
+        table_counts={
+            name: int(pl.scan_parquet(path).select(pl.len()).collect().item())
+            for name, path in paths.items()
+        },
+    )
+    stages: dict[str, float] = {
+        "validation_ms": elapsed_ms,
+        "normalization_ms": elapsed_ms,
+    }
+    analysis_dict: dict[str, Any] | None = None
+    graph_dict: dict[str, Any] | None = None
+    pipeline_status = "PARTIAL"
+    if valid <= 50_000:
+        t_ml = time.perf_counter()
+        analysis = run_full_analysis()
+        stages["analysis_ms"] = round((time.perf_counter() - t_ml) * 1000, 2)
+        analysis_dict = {
+            "wallets_analyzed": analysis.wallets_analyzed,
+            "anomalies_detected": analysis.anomalies_detected,
+            "critical_risk_leads": analysis.critical_risk_leads,
+            "high_risk_leads": analysis.high_risk_leads,
+            "cluster_count": analysis.cluster_count,
+            "duration_seconds": analysis.analysis_duration_seconds,
+        }
+        t_graph = time.perf_counter()
+        invalidate_graph_cache()
+        graph, graph_stats = build_investigation_graph(force_rebuild=True)
+        stages["graph_build_ms"] = round((time.perf_counter() - t_graph) * 1000, 2)
+        graph_dict = {
+            "total_nodes": graph_stats.get("total_nodes", len(graph.nodes)),
+            "total_edges": graph_stats.get("total_edges", len(graph.edges)),
+        }
+        pipeline_status = "SUCCESS"
+    stages["total_ms"] = round(sum(stages.values()), 2)
+    manifest = {
+        "has_dataset": True,
+        "filename": filename,
+        "detected_format": detected_format,
+        "total_transactions": valid,
+        "total_wallets": int(analytics["wallets"]),
+        "source_sha256": digest,
+        "geoip_sources": geoip_sources,
+        "stage_timings_ms": stages,
+        "analyzed_at": datetime.now(UTC).isoformat() if analysis_dict else None,
+    }
+    MANIFEST_FILE.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return DatasetUploadResponse(
+        filename=filename,
+        detected_format=detected_format,
+        total_rows=total,
+        valid_rows=valid,
+        rejected_rows=rejected,
+        validation_status="PASSED" if not rejected else "PARTIAL",
+        summary=summary,
+        rejected_details=rejected_preview,
+        storage=storage,
+        pipeline_status=pipeline_status,
+        stage_timings_ms=stages,
+        analysis_summary=analysis_dict,
+        graph_summary=graph_dict,
+        source_sha256=digest,
+        geoip_sources=geoip_sources,
+    )
+
+
 @router.post(
     "/upload", response_model=DatasetUploadResponse, status_code=status.HTTP_200_OK
 )
@@ -199,83 +376,78 @@ async def upload_dataset(
             detail="Uploaded file must have a filename.",
         )
 
-    filename = file.filename
+    if "/" in file.filename or "\\" in file.filename or ".." in file.filename:
+        raise HTTPException(status_code=400, detail="Invalid upload filename")
+    filename = Path(PureWindowsPath(file.filename).name).name
     suffix = Path(filename).suffix.lower()
 
-    if suffix in [".csv"]:
-        detected_format = "csv"
-    elif suffix in [".json"]:
-        detected_format = "json"
-    else:
+    if suffix not in ALLOWED_UPLOAD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format '{suffix}'. Only .csv and .json datasets are supported.",
+            detail="Unsupported dataset format",
         )
-
-    try:
-        raw_bytes = await file.read()
-    except Exception as e:
+    if (
+        file.content_type
+        and file.content_type.split(";", 1)[0].lower()
+        not in ALLOWED_UPLOAD_TYPES[suffix]
+    ):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to read uploaded file",
-        ) from e
-
-    if not raw_bytes or len(raw_bytes.strip()) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
+            status_code=400, detail="Upload content type does not match its format"
         )
-
-    try:
-        content = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError:
+    detected_format = suffix.lstrip(".")
+    upload_dir = Path(__file__).resolve().parents[2] / "data" / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=upload_dir) as temporary:
+        stored_path = Path(temporary) / f"{uuid4().hex}{suffix}"
+        digest = sha256()
+        size = 0
+        header = b""
+        previous_tail = b""
+        with stored_path.open("wb") as output:
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                if size > upload_limit_bytes():
+                    raise HTTPException(
+                        status_code=413, detail="Upload size limit exceeded"
+                    )
+                if len(header) < 4096:
+                    header += chunk[: 4096 - len(header)]
+                if any(
+                    signature in previous_tail + chunk
+                    for signature in ARCHIVE_SIGNATURES
+                ):
+                    raise HTTPException(
+                        status_code=400, detail="Archive uploads are not supported"
+                    )
+                previous_tail = chunk[-7:]
+                digest.update(chunk)
+                output.write(chunk)
+        if not size or not header.strip():
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        sniff_upload(header, suffix)
+        start = time.perf_counter()
         try:
-            content = raw_bytes.decode("latin-1")
-        except Exception as e:
+            result = ingest_file(stored_path, source_name=filename)
+        except (
+            ValueError,
+            UnicodeDecodeError,
+            OSError,
+            duckdb.Error,
+            DefusedXmlException,
+            ParseError,
+        ) as exc:
+            logging.getLogger(__name__).warning(
+                "Dataset ingestion rejected", exc_info=exc
+            )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unable to decode file content as UTF-8/text",
-            ) from e
-
-    t_val = time.perf_counter()
-    try:
-        if detected_format == "csv":
-            valid_records, rejected_records = parse_csv_content(content)
-        else:
-            valid_records, rejected_records = parse_json_content(content)
-    except json.JSONDecodeError as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed JSON syntax"
-        ) from err
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to parse dataset file",
-        ) from err
-    val_ms = round((time.perf_counter() - t_val) * 1000.0, 2)
-
-    total_rows = len(valid_records) + len(rejected_records)
-    if total_rows == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dataset contains zero records or an empty table.",
-        )
-
-    if len(rejected_records) == 0:
-        validation_status = "PASSED"
-    elif len(valid_records) > 0:
-        validation_status = "PARTIAL"
-    else:
-        validation_status = "FAILED"
-
-    return process_dataset_end_to_end(
-        valid_records=valid_records,
-        filename=filename,
-        detected_format=detected_format,
-        total_rows=total_rows,
-        rejected_records=rejected_records,
-        validation_status=validation_status,
-        val_ms=val_ms,
-    )
+                status_code=400, detail="Invalid dataset content"
+            ) from exc
+        if digest.hexdigest() != result["source_sha256"]:
+            raise RuntimeError("Upload digest changed during ingestion")
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+    if int(result["total_rows"]) == 0:
+        raise HTTPException(status_code=400, detail="Dataset contains zero records")
+    return respond_to_streamed_upload(result, filename, detected_format, elapsed_ms)
 
 
 @router.post(
@@ -294,26 +466,13 @@ def load_benchmark_dataset():
     if not target_csv.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Demonstration dataset not found on disk at {CANONICAL_DEMO_CSV} or {LEGACY_BENCHMARK_CSV}.",
+            detail="Demonstration dataset not found",
         )
 
-    t_val = time.perf_counter()
-    with open(target_csv, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    valid_records, rejected_records = parse_csv_content(content)
-    val_ms = round((time.perf_counter() - t_val) * 1000.0, 2)
-    total_rows = len(valid_records) + len(rejected_records)
-
-    return process_dataset_end_to_end(
-        valid_records=valid_records,
-        filename=target_csv.name,
-        detected_format="csv",
-        total_rows=total_rows,
-        rejected_records=rejected_records,
-        validation_status="PASSED",
-        val_ms=val_ms,
-    )
+    started = time.perf_counter()
+    result = ingest_file(target_csv, source_name=target_csv.name)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+    return respond_to_streamed_upload(result, target_csv.name, "csv", elapsed_ms)
 
 
 @router.get(

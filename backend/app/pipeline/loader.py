@@ -9,11 +9,35 @@ from app.schemas.transaction import (
     BitcoinTransactionRecord,
     DatasetSummary,
 )
+from defusedxml.ElementTree import iterparse  # type: ignore[import-untyped]  # defusedxml lacks a typing marker.
 from pydantic import ValidationError
+
+MAX_FIELD_LENGTH = 65_536
+MAX_LIST_ITEMS = 1_024
+MAX_NESTING_DEPTH = 16
+
+
+def _bounded(value: Any, depth: int = 0) -> None:
+    """Reject parser values that would expand memory or error responses excessively."""
+    if depth > MAX_NESTING_DEPTH:
+        raise ValueError("Record nesting limit exceeded")
+    if isinstance(value, str) and len(value) > MAX_FIELD_LENGTH:
+        raise ValueError("Field length limit exceeded")
+    if isinstance(value, list):
+        if len(value) > MAX_LIST_ITEMS:
+            raise ValueError("List size limit exceeded")
+        for item in value:
+            _bounded(item, depth + 1)
+    if isinstance(value, dict):
+        if len(value) > MAX_LIST_ITEMS:
+            raise ValueError("Object size limit exceeded")
+        for item in value.values():
+            _bounded(item, depth + 1)
 
 
 def parse_list_field(value: Any, item_type: type = str) -> list[Any]:
     """Safely parse list fields from CSV (which may be JSON-encoded or already lists)."""
+    _bounded(value)
     if isinstance(value, list):
         return [item_type(x) for x in value]
     if isinstance(value, str):
@@ -26,11 +50,14 @@ def parse_list_field(value: Any, item_type: type = str) -> list[Any]:
             except json.JSONDecodeError:
                 parsed = None
             if isinstance(parsed, list):
+                _bounded(parsed)
                 return [item_type(x) for x in parsed]
         # Fallback: delimiter-separated (comma, semicolon, or pipe)
         for sep in [";", "|", ","]:
             if sep in v:
-                return [item_type(x.strip()) for x in v.split(sep) if x.strip()]
+                parts = [x.strip() for x in v.split(sep) if x.strip()]
+                _bounded(parts)
+                return [item_type(x) for x in parts]
         if v:
             return [item_type(v)]
     return []
@@ -57,6 +84,7 @@ def parse_csv_content(
         if not any(row.values()):
             continue
         try:
+            _bounded(row)
             raw_record = {
                 "timestamp": (row.get("timestamp") or "").strip(),
                 "src_ip": (row.get("src_ip") or "").strip(),
@@ -135,6 +163,7 @@ def parse_json_content(
             )
             continue
         try:
+            _bounded(item)
             record = BitcoinTransactionRecord.model_validate(item)
             valid_records.append(record)
         except (ValidationError, ValueError, TypeError) as err:
@@ -146,6 +175,66 @@ def parse_json_content(
                 }
             )
 
+    return valid_records, rejected_records
+
+
+def parse_xml_content(
+    content: str,
+) -> tuple[list[BitcoinTransactionRecord], list[dict[str, Any]]]:
+    """Parse transaction elements with defusedxml and bounded nesting/fields."""
+    valid_records: list[BitcoinTransactionRecord] = []
+    rejected_records: list[dict[str, Any]] = []
+    list_names = {
+        "input_addresses",
+        "output_addresses",
+        "input_amounts",
+        "output_amounts",
+    }
+    depth = 0
+    for event, elem in iterparse(io.StringIO(content), events=("start", "end")):
+        if event == "start":
+            depth += 1
+            if depth > MAX_NESTING_DEPTH:
+                raise ValueError("XML nesting limit exceeded")
+            for value in elem.attrib.values():
+                _bounded(value)
+            continue
+        if elem.tag in {"transaction", "record"}:
+            row: dict[str, Any] = {}
+            for child in elem:
+                key = child.tag
+                if key in list_names:
+                    values = (
+                        [part.text or "" for part in child]
+                        if len(child)
+                        else parse_list_field(child.text or "")
+                    )
+                    _bounded(values)
+                    row[key] = [*row.get(key, []), *values]
+                else:
+                    value = child.text or ""
+                    _bounded(value)
+                    row[key] = value
+            for key in ("input_amounts", "output_amounts"):
+                row[key] = parse_list_field(row.get(key, []), float)
+            for key in ("input_addresses", "output_addresses"):
+                row[key] = parse_list_field(row.get(key, []), str)
+            if "asn" in row and "ASN" not in row:
+                row["ASN"] = row.pop("asn")
+            if "fee_btc" in row and "fee" not in row:
+                row["fee"] = row.pop("fee_btc")
+            try:
+                valid_records.append(BitcoinTransactionRecord.model_validate(row))
+            except (ValidationError, ValueError, TypeError) as err:
+                rejected_records.append(
+                    {
+                        "index": len(valid_records) + len(rejected_records),
+                        "txid": row.get("txid"),
+                        "error": type(err).__name__,
+                    }
+                )
+            elem.clear()
+        depth -= 1
     return valid_records, rejected_records
 
 
@@ -191,8 +280,13 @@ def load_transactions(
         return load_transactions_from_csv(path)
     elif suffix == ".json":
         return load_transactions_from_json(path)
+    elif suffix == ".xml":
+        with open(path, encoding="utf-8") as stream:
+            return parse_xml_content(stream.read())
     else:
-        raise ValueError(f"Unsupported file format '{suffix}'. Supported: .csv, .json")
+        raise ValueError(
+            f"Unsupported file format '{suffix}'. Supported: .csv, .json, .xml"
+        )
 
 
 def load_ground_truth(filepath: str | Path) -> dict[str, Any]:

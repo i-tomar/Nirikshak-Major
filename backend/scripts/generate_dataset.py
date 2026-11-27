@@ -21,8 +21,9 @@ import random
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
-SCHEMA_VERSION = "schema_v1"
+SCHEMA_VERSION = "schema_v2"
 
 # Realistic autonomous systems & geographic mapping
 NETWORK_PROFILES = [
@@ -119,6 +120,7 @@ class SyntheticBitcoinGenerator:
         days: int = 7,
         start_time: datetime | None = None,
         seed: int = 42,
+        profile: str | None = None,
     ):
         self.num_tx = num_tx
         self.num_wallets = num_wallets
@@ -126,8 +128,11 @@ class SyntheticBitcoinGenerator:
         self.anomaly_pct = anomaly_pct
         self.days = days
         self.rng = random.Random(seed)
+        if profile not in (None, "normal", "sparse", "adversarial"):
+            raise ValueError("Unknown synthetic profile")
+        self.profile = profile
 
-        self.start_time = start_time or (datetime.now(UTC) - timedelta(days=self.days))
+        self.start_time = start_time or datetime(2025, 1, 1, 16, 40, tzinfo=UTC)
         self.end_time = self.start_time + timedelta(days=self.days)
 
         # Pre-generate persistent pool of wallets
@@ -192,7 +197,7 @@ class SyntheticBitcoinGenerator:
         transactions: list[dict[str, Any]] = []
         ground_truth: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
-            "generated_at": datetime.now(UTC).isoformat(),
+            "generated_at": self.start_time.isoformat(),
             "config": {
                 "num_tx": self.num_tx,
                 "num_wallets": self.num_wallets,
@@ -215,6 +220,13 @@ class SyntheticBitcoinGenerator:
             (self._generate_network_correlated_anomaly, "tor_net"),
             (self._generate_fanin_consolidation, "fanin"),
         ]
+        if self.profile is not None:
+            scenario_generators.extend(
+                [
+                    (self._generate_coinjoin_like, "coinjoin"),
+                    (self._generate_ransomware_flow, "ransomware"),
+                ]
+            )
         scenario_counts = {name: 0 for _, name in scenario_generators}
 
         # Cycle through scenarios until target_anomalies is fulfilled
@@ -223,6 +235,23 @@ class SyntheticBitcoinGenerator:
                 if len(transactions) >= target_anomalies:
                     break
                 s_txs, s_gt = gen_fn(scenario_counts[name])
+                if self.profile == "adversarial" and name == "peeling":
+                    for tx in s_txs[::3]:
+                        if tx["output_amounts"][0] > 0.00002:
+                            tx["output_addresses"].append(
+                                generate_btc_address(
+                                    self.rng,
+                                    "P2WPKH",
+                                    f"peel_decoy_{scenario_counts[name]}",
+                                )
+                            )
+                            tx["output_amounts"][0] = round(
+                                tx["output_amounts"][0] - 0.00001, 8
+                            )
+                            tx["output_amounts"].append(0.00001)
+                            s_gt["transactions"][tx["txid"]]["entities_involved"] = (
+                                tx["input_addresses"] + tx["output_addresses"]
+                            )
                 scenario_counts[name] += 1
                 transactions.extend(s_txs)
                 ground_truth["transactions"].update(s_gt["transactions"])
@@ -233,6 +262,27 @@ class SyntheticBitcoinGenerator:
         # 6. Fill remaining transactions as Normal Traffic
         remaining_count = max(0, self.num_tx - current_anomaly_count)
         normal_txs, normal_gt = self._generate_normal_traffic(remaining_count)
+        if self.profile == "sparse":
+            for tx in normal_txs[::4]:
+                if len(tx["output_addresses"]) > 1:
+                    tx["output_addresses"][-1] = self.rng.choice(self.wallets)[
+                        "address"
+                    ]
+                    normal_gt["transactions"][tx["txid"]]["entities_involved"] = (
+                        tx["input_addresses"] + tx["output_addresses"]
+                    )
+        if self.profile == "adversarial":
+            shared_ips = ["198.51.100.21", "198.51.100.22", "203.0.113.23"]
+            for tx in normal_txs[::10]:
+                tx["src_ip"] = self.rng.choice(shared_ips)
+                tx["timestamp"] = (
+                    datetime.fromisoformat(tx["timestamp"])
+                    + timedelta(seconds=self.rng.randint(-120, 120))
+                ).isoformat()
+                if len(tx["output_amounts"]) > 1 and tx["output_amounts"][0] > 0.00001:
+                    jitter = 0.00001
+                    tx["output_amounts"][0] = round(tx["output_amounts"][0] - jitter, 8)
+                    tx["output_amounts"][1] = round(tx["output_amounts"][1] + jitter, 8)
         transactions.extend(normal_txs)
         ground_truth["transactions"].update(normal_gt["transactions"])
 
@@ -261,6 +311,110 @@ class SyntheticBitcoinGenerator:
         }
 
         return transactions, ground_truth
+
+    def _generate_coinjoin_like(
+        self, index: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Create a multi-input, equal-output mixing-like observation."""
+        sources = [
+            generate_btc_address(self.rng, "P2WPKH", f"mix_in_{index}_{i}")
+            for i in range(3)
+        ]
+        destinations = [
+            generate_btc_address(self.rng, "P2WPKH", f"mix_out_{index}_{i}")
+            for i in range(3)
+        ]
+        timestamp = (self.start_time + timedelta(hours=index + 1)).isoformat()
+        txid = generate_txid(self.rng, f"coinjoin_{index}")
+        tx = {
+            "timestamp": timestamp,
+            "src_ip": "203.0.113.23",
+            "dst_ip": "198.51.100.23",
+            "src_port": 50000,
+            "dst_port": 8333,
+            "txid": txid,
+            "input_addresses": sources,
+            "output_addresses": destinations,
+            "input_amounts": [1.0, 1.0, 1.0],
+            "output_amounts": [0.9999] * 3,
+            "fee": 0.0003,
+            "script_type": "P2WPKH",
+            "geo_country": "ZZ",
+            "ASN": "AS0",
+        }
+        truth = {
+            txid: {
+                "label": "anomaly",
+                "anomaly_type": "coinjoin_like",
+                "pattern_name": "Equal-output mixing-like transaction",
+                "entities_involved": sources + destinations,
+            }
+        }
+        return [tx], {"transactions": truth, "wallets": {}}
+
+    def _generate_ransomware_flow(
+        self, index: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Create collection payments followed by consolidation, with hidden labels."""
+        collector = generate_btc_address(self.rng, "P2TR", f"collector_{index}")
+        cashout = generate_btc_address(self.rng, "P2TR", f"cashout_{index}")
+        transactions = []
+        truth = {}
+        for item in range(2):
+            payer = generate_btc_address(self.rng, "P2WPKH", f"payer_{index}_{item}")
+            txid = generate_txid(self.rng, f"collection_{index}_{item}")
+            transactions.append(
+                {
+                    "timestamp": (
+                        self.start_time + timedelta(hours=index + item + 2)
+                    ).isoformat(),
+                    "src_ip": "203.0.113.24",
+                    "dst_ip": "198.51.100.24",
+                    "src_port": 50001,
+                    "dst_port": 8333,
+                    "txid": txid,
+                    "input_addresses": [payer],
+                    "output_addresses": [collector],
+                    "input_amounts": [1.0],
+                    "output_amounts": [0.9999],
+                    "fee": 0.0001,
+                    "script_type": "P2TR",
+                    "geo_country": "ZZ",
+                    "ASN": "AS0",
+                }
+            )
+            truth[txid] = {
+                "label": "anomaly",
+                "anomaly_type": "ransomware_collection",
+                "pattern_name": "Collection payment",
+                "entities_involved": [payer, collector],
+            }
+        txid = generate_txid(self.rng, f"consolidate_{index}")
+        transactions.append(
+            {
+                "timestamp": (self.start_time + timedelta(hours=index + 4)).isoformat(),
+                "src_ip": "203.0.113.24",
+                "dst_ip": "198.51.100.24",
+                "src_port": 50001,
+                "dst_port": 8333,
+                "txid": txid,
+                "input_addresses": [collector],
+                "output_addresses": [cashout],
+                "input_amounts": [1.9998],
+                "output_amounts": [1.9997],
+                "fee": 0.0001,
+                "script_type": "P2TR",
+                "geo_country": "ZZ",
+                "ASN": "AS0",
+            }
+        )
+        truth[txid] = {
+            "label": "anomaly",
+            "anomaly_type": "ransomware_consolidation",
+            "pattern_name": "Collection consolidation",
+            "entities_involved": [collector, cashout],
+        }
+        return transactions, {"transactions": truth, "wallets": {}}
 
     def _generate_rapid_multihop_cluster(
         self, cluster_idx: int = 0
@@ -771,9 +925,12 @@ class SyntheticBitcoinGenerator:
 
 
 def export_dataset(
-    transactions: list[dict[str, Any]], ground_truth: dict[str, Any], output_dir: Path
+    transactions: list[dict[str, Any]],
+    ground_truth: dict[str, Any],
+    output_dir: Path,
+    output_format: str = "legacy",
 ):
-    """Write transactions to CSV and JSON, and ground truth to JSON."""
+    """Write selected public formats and a separate backend-only label file."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     csv_path = output_dir / "demo_transactions.csv"
@@ -797,24 +954,44 @@ def export_dataset(
         "geo_country",
         "ASN",
     ]
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for tx in transactions:
-            row = tx.copy()
-            row["input_addresses"] = json.dumps(row["input_addresses"])
-            row["output_addresses"] = json.dumps(row["output_addresses"])
-            row["input_amounts"] = json.dumps(row["input_amounts"])
-            row["output_amounts"] = json.dumps(row["output_amounts"])
-            writer.writerow(row)
+    if output_format in {"legacy", "csv", "all"}:
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for tx in transactions:
+                row = tx.copy()
+                row["input_addresses"] = json.dumps(row["input_addresses"])
+                row["output_addresses"] = json.dumps(row["output_addresses"])
+                row["input_amounts"] = json.dumps(row["input_amounts"])
+                row["output_amounts"] = json.dumps(row["output_amounts"])
+                writer.writerow(row)
 
     # 2. Export JSON
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(
-            {"schema_version": SCHEMA_VERSION, "transactions": transactions},
-            f,
-            indent=2,
-        )
+    if output_format in {"legacy", "json", "all"}:
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"schema_version": SCHEMA_VERSION, "transactions": transactions},
+                f,
+                indent=2,
+            )
+
+    if output_format in {"xml", "all"}:
+        xml_path = output_dir / "demo_transactions.xml"
+        with xml_path.open("w", encoding="utf-8") as stream:
+            stream.write('<transactions schema_version="' + SCHEMA_VERSION + '">\n')
+            for tx in transactions:
+                stream.write("<transaction>")
+                for key in fieldnames:
+                    value = tx[key]
+                    if isinstance(value, list):
+                        content = "".join(
+                            f"<item>{escape(str(item))}</item>" for item in value
+                        )
+                    else:
+                        content = escape(str(value))
+                    stream.write(f"<{key}>{content}</{key}>")
+                stream.write("</transaction>\n")
+            stream.write("</transactions>\n")
 
     # 3. Export Ground Truth
     with open(gt_path, "w", encoding="utf-8") as f:
@@ -829,6 +1006,7 @@ def main():
     )
     parser.add_argument(
         "--num-tx",
+        "--n-tx",
         type=int,
         default=5000,
         help="Total number of transactions to generate (default: 5000)",
@@ -866,6 +1044,12 @@ def main():
         default=42,
         help="Random seed for reproducible demo generation (default: 42)",
     )
+    parser.add_argument(
+        "--profile", choices=("normal", "sparse", "adversarial"), default="normal"
+    )
+    parser.add_argument(
+        "--format", choices=("csv", "json", "xml", "all"), default="all"
+    )
 
     args = parser.parse_args()
 
@@ -896,13 +1080,16 @@ def main():
         anomaly_pct=args.anomaly_pct,
         days=args.days,
         seed=args.seed,
+        profile=args.profile,
     )
 
     print("Generating transactions and synthetic anomaly topologies...")
     transactions, ground_truth = generator.generate()
 
     print("Writing files...")
-    csv_path, json_path, gt_path = export_dataset(transactions, ground_truth, out_dir)
+    csv_path, json_path, gt_path = export_dataset(
+        transactions, ground_truth, out_dir, args.format
+    )
 
     summary = ground_truth["summary"]
     print("\nDataset Generation Complete!")
@@ -916,12 +1103,11 @@ def main():
         if k != "normal":
             print(f"      - {k.replace('_', ' ').title()}: {v} txs")
     print("\nGenerated Files:")
-    print(
-        f"  [CSV]          : {csv_path.resolve()} ({csv_path.stat().st_size / 1024:.1f} KB)"
-    )
-    print(
-        f"  [JSON]         : {json_path.resolve()} ({json_path.stat().st_size / 1024:.1f} KB)"
-    )
+    for file_path in (csv_path, json_path, out_dir / "demo_transactions.xml"):
+        if file_path.exists():
+            print(
+                f"  [{file_path.suffix.lstrip('.').upper()}] : {file_path.resolve()} ({file_path.stat().st_size / 1024:.1f} KB)"
+            )
     print(
         f"  [Ground Truth] : {gt_path.resolve()} ({gt_path.stat().st_size / 1024:.1f} KB)"
     )
