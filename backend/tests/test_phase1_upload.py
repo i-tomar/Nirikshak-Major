@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
         ("..\\..\\other.csv", b"txid,fee\na,1\n", "text/csv", 400),
         ("bad.csv", b'{"txid":"a"}', "application/json", 400),
         ("archive.csv", b"PK\x03\x04" + b"x" * 100, "text/csv", 400),
+        ("nested.csv", b"txid,fee\na,1\nPK\x03\x04", "text/csv", 400),
         ("empty.csv", b"", "text/csv", 400),
         ("binary.csv", b"txid,fee\n\x00\xff", "text/csv", 400),
         (

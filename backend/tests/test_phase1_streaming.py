@@ -118,3 +118,17 @@ def test_streaming_rejects_overlong_fields_and_lists(tmp_path: Path):
     assert result["rejected_rows"] == 2
     errors = set(pl.read_parquet(get_parquet_paths(tmp_path / "store")["rejected"])["error"])
     assert errors == {"Field length limit exceeded", "List size limit exceeded"}
+
+
+def test_all_rejected_upload_keeps_active_tables(tmp_path: Path):
+    store = tmp_path / "store"
+    valid_source = tmp_path / "valid.ndjson"
+    valid_source.write_text(json.dumps(_record("a" * 64, "2025-01-01T00:00:00Z")), encoding="utf-8")
+    assert ingest_file(valid_source, store)["valid_rows"] == 1
+    core = get_parquet_paths(store)
+    before = {name: path.read_bytes() for name, path in core.items() if name != "rejected"}
+    invalid_source = tmp_path / "invalid.ndjson"
+    invalid_source.write_text(json.dumps(_record("bad", "2025-01-01T00:00:00Z")), encoding="utf-8")
+    assert ingest_file(invalid_source, store)["valid_rows"] == 0
+    assert {name: core[name].read_bytes() for name in before} == before
+    assert pl.read_parquet(core["rejected"]).height == 1

@@ -36,12 +36,14 @@ class GeoIPResolver:
                     )
                 )
         candidates = {
-            "city": ("GeoLite2-City.mmdb", "dbip-city-lite-2026-11.mmdb.gz"),
-            "asn": ("GeoLite2-ASN.mmdb", "dbip-asn-lite-2026-11.mmdb.gz"),
+            "city": ("GeoLite2-City.mmdb", "dbip-city-lite-*.mmdb*"),
+            "asn": ("GeoLite2-ASN.mmdb", "dbip-asn-lite-*.mmdb*"),
         }
-        for kind, names in candidates.items():
-            for name in names:
-                source = geoip_dir / name
+        for kind, (geolite_name, dbip_pattern) in candidates.items():
+            for source in (
+                geoip_dir / geolite_name,
+                *sorted(geoip_dir.glob(dbip_pattern), reverse=True),
+            ):
                 if not source.is_file():
                     continue
                 target = source

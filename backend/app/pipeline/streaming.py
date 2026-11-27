@@ -129,24 +129,11 @@ def xml_to_ndjson(source: Path, destination: Path) -> None:
         raise ValueError("XML contains no transactions")
 
 
-def _column(names: set[str], name: str, fallback: str = "NULL") -> str:
-    """Choose only known field names, quoted against malicious source headers."""
-    return f'"{name}"' if name.lower() in names else fallback
-
-
-def _list_expr(field: str, value_type: str) -> str:
-    text = f"trim(cast({field} AS VARCHAR))"
-    separated = f"string_split(replace(replace({text}, ';', ','), '|', ','), ',')"
-    if value_type == "VARCHAR":
-        return f"coalesce(try_cast({field} AS VARCHAR[]), {separated})"
-    return f"coalesce(try_cast({field} AS DOUBLE[]), list_transform({separated}, lambda x: try_cast(x AS DOUBLE)))"
-
-
 def _copy(
     connection: duckdb.DuckDBPyConnection,
     query: str,
     destination: Path,
-    values: list[str] | None = None,
+    values: list[object] | None = None,
 ) -> None:
     connection.execute(
         f"COPY ({query}) TO ? (FORMAT PARQUET, COMPRESSION ZSTD)",
@@ -194,9 +181,10 @@ def ingest_file(
     if suffix not in {".csv", ".json", ".ndjson", ".xml"}:
         raise ValueError("Unsupported dataset format")
     digest = source_digest(path)
-    paths = get_parquet_paths(storage_dir)
-    with TemporaryDirectory() as temporary:
+    target_paths = get_parquet_paths(storage_dir)
+    with TemporaryDirectory(dir=target_paths["transactions"].parent) as temporary:
         staging = Path(temporary)
+        paths = get_parquet_paths(staging / "normalized")
         scan_path = path
         if suffix == ".json":
             scan_path = staging / "records.ndjson"
@@ -208,13 +196,15 @@ def ingest_file(
         connection.execute("SET TimeZone='UTC'")
         connection.execute("SET temp_directory = ?", [str(staging)])
         if suffix == ".csv":
-            reader = "read_csv(?, all_varchar=true, header=true, max_line_size=4194304)"
+            connection.execute(
+                "CREATE TEMP TABLE raw AS SELECT row_number() OVER () AS source_row, * FROM read_csv(?, all_varchar=true, header=true, max_line_size=4194304)",
+                [str(scan_path)],
+            )
         else:
-            reader = "read_json(?, format='newline_delimited', maximum_object_size=4194304, maximum_depth=16)"
-        connection.execute(
-            f"CREATE TEMP TABLE raw AS SELECT row_number() OVER () AS source_row, * FROM {reader}",
-            [str(scan_path)],
-        )
+            connection.execute(
+                "CREATE TEMP TABLE raw AS SELECT row_number() OVER () AS source_row, * FROM read_json(?, format='newline_delimited', maximum_object_size=4194304, maximum_depth=16)",
+                [str(scan_path)],
+            )
         names = {
             row[0].lower() for row in connection.execute("DESCRIBE raw").fetchall()
         }
@@ -230,29 +220,38 @@ def ingest_file(
         }
         if not required <= names:
             raise ValueError("Dataset is missing required columns")
-        column = lambda name, fallback="NULL": _column(names, name, fallback)
-        input_addresses = _list_expr(column("input_addresses"), "VARCHAR")
-        output_addresses = _list_expr(column("output_addresses"), "VARCHAR")
-        input_amounts = _list_expr(column("input_amounts"), "DOUBLE")
-        output_amounts = _list_expr(column("output_amounts"), "DOUBLE")
-        fee = column("fee_btc", column("fee", "0"))
-        asn = column("asn", column("ASN"))
-        connection.execute(f"""
+        optional = {
+            "src_port": 'ALTER TABLE raw ADD COLUMN src_port VARCHAR',
+            "dst_port": 'ALTER TABLE raw ADD COLUMN dst_port VARCHAR',
+            "fee": 'ALTER TABLE raw ADD COLUMN fee VARCHAR',
+            "fee_btc": 'ALTER TABLE raw ADD COLUMN fee_btc VARCHAR',
+            "script_type": 'ALTER TABLE raw ADD COLUMN script_type VARCHAR',
+            "geo_country": 'ALTER TABLE raw ADD COLUMN geo_country VARCHAR',
+            "asn": 'ALTER TABLE raw ADD COLUMN ASN VARCHAR',
+        }
+        for name, statement in optional.items():
+            if name not in names:
+                connection.execute(statement)
+        connection.execute("""
             CREATE TEMP TABLE parsed AS SELECT source_row,
-              lower(trim(cast({column("txid")} AS VARCHAR))) AS txid,
-              try_cast({column("timestamp")} AS TIMESTAMPTZ) AS timestamp_utc,
-              trim(cast({column("src_ip")} AS VARCHAR)) AS src_ip,
-              trim(cast({column("dst_ip")} AS VARCHAR)) AS dst_ip,
-              coalesce(try_cast({column("src_port", "0")} AS INTEGER), 0) AS src_port,
-              coalesce(try_cast({column("dst_port", "8333")} AS INTEGER), 8333) AS dst_port,
-              {input_addresses} AS input_addresses,
-              {output_addresses} AS output_addresses,
-              {input_amounts} AS input_amounts,
-              {output_amounts} AS output_amounts,
-              try_cast({fee} AS DOUBLE) AS fee,
-              coalesce(cast({column("script_type", "'P2WPKH'")} AS VARCHAR), 'P2WPKH') AS script_type,
-              cast({column("geo_country")} AS VARCHAR) AS geo_country,
-              cast({asn} AS VARCHAR) AS ASN
+              lower(trim(cast(txid AS VARCHAR))) AS txid,
+              try_cast(timestamp AS TIMESTAMPTZ) AS timestamp_utc,
+              trim(cast(src_ip AS VARCHAR)) AS src_ip,
+              trim(cast(dst_ip AS VARCHAR)) AS dst_ip,
+              coalesce(try_cast(src_port AS INTEGER), 0) AS src_port,
+              coalesce(try_cast(dst_port AS INTEGER), 8333) AS dst_port,
+              coalesce(try_cast(input_addresses AS VARCHAR[]),
+                string_split(replace(replace(trim(cast(input_addresses AS VARCHAR)), ';', ','), '|', ','), ',')) AS input_addresses,
+              coalesce(try_cast(output_addresses AS VARCHAR[]),
+                string_split(replace(replace(trim(cast(output_addresses AS VARCHAR)), ';', ','), '|', ','), ',')) AS output_addresses,
+              coalesce(try_cast(input_amounts AS DOUBLE[]),
+                list_transform(string_split(replace(replace(trim(cast(input_amounts AS VARCHAR)), ';', ','), '|', ','), ','), lambda x: try_cast(x AS DOUBLE))) AS input_amounts,
+              coalesce(try_cast(output_amounts AS DOUBLE[]),
+                list_transform(string_split(replace(replace(trim(cast(output_amounts AS VARCHAR)), ';', ','), '|', ','), ','), lambda x: try_cast(x AS DOUBLE))) AS output_amounts,
+              coalesce(try_cast(fee_btc AS DOUBLE), try_cast(fee AS DOUBLE), 0.0) AS fee,
+              coalesce(cast(script_type AS VARCHAR), 'P2WPKH') AS script_type,
+              cast(geo_country AS VARCHAR) AS geo_country,
+              cast(ASN AS VARCHAR) AS ASN
             FROM raw
         """)
         connection.execute("""
@@ -316,10 +315,10 @@ def ingest_file(
         )
         _copy(
             connection,
-            f"""SELECT source_row + {1 if suffix == '.csv' else 0} AS line, txid, validation_error AS error,
+            """SELECT source_row + ? AS line, txid, validation_error AS error,
           ? AS source_file_name, ? AS source_sha256 FROM checked WHERE validation_error IS NOT NULL""",
             paths["rejected"],
-            [source_name or path.name, digest],
+            [1 if suffix == ".csv" else 0, source_name or path.name, digest],
         )
         geoip_sources = _write_ip_enrichment(connection, paths["ip_enrichment"])
         counts = connection.execute(
@@ -327,11 +326,15 @@ def ingest_file(
         ).fetchone()
         if counts is None:
             raise RuntimeError("Ingestion count unavailable")
+        connection.close()
+        selected = paths if int(counts[1]) > 0 else {"rejected": paths["rejected"]}
+        for name, staged_path in selected.items():
+            staged_path.replace(target_paths[name])
         return {
             "total_rows": int(counts[0]),
             "valid_rows": int(counts[1]),
             "rejected_rows": int(counts[0]) - int(counts[1]),
             "source_sha256": digest,
-            "storage_dir": str(paths["transactions"].parent),
+            "storage_dir": str(target_paths["transactions"].parent),
             "geoip_sources": geoip_sources,
         }

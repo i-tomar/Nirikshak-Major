@@ -8,7 +8,6 @@ from pathlib import Path, PureWindowsPath
 from tempfile import TemporaryDirectory
 from typing import Annotated, Any
 from uuid import uuid4
-from xml.etree.ElementTree import ParseError
 
 import duckdb
 import polars as pl
@@ -43,9 +42,17 @@ from app.schemas.transaction import (
     StorageInfo,
 )
 from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]  # defusedxml has no typing marker.
+from defusedxml.ElementTree import ParseError  # type: ignore[import-untyped]  # defusedxml safely raises this parser error.
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 UPLOAD_CHUNK_BYTES = 1024 * 1024
+ARCHIVE_SIGNATURES = (
+    b"PK\x03\x04",
+    b"PK\x05\x06",
+    b"\x1f\x8b",
+    b"7z\xbc\xaf\x27\x1c",
+    b"Rar!",
+)
 ALLOWED_UPLOAD_TYPES = {
     ".csv": {"text/csv", "application/vnd.ms-excel", "text/plain"},
     ".json": {"application/json", "text/json"},
@@ -69,9 +76,7 @@ def upload_limit_bytes() -> int:
 def sniff_upload(header: bytes, suffix: str) -> None:
     """Reject archives, binary input and a mismatch with the declared extension."""
     if (
-        header.startswith(
-            (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!")
-        )
+        any(signature in header for signature in ARCHIVE_SIGNATURES)
         or header[257:262] == b"ustar"
     ):
         raise HTTPException(status_code=400, detail="Archive uploads are not supported")
@@ -397,6 +402,7 @@ async def upload_dataset(
         digest = sha256()
         size = 0
         header = b""
+        previous_tail = b""
         with stored_path.open("wb") as output:
             while chunk := await file.read(UPLOAD_CHUNK_BYTES):
                 size += len(chunk)
@@ -406,6 +412,14 @@ async def upload_dataset(
                     )
                 if len(header) < 4096:
                     header += chunk[: 4096 - len(header)]
+                if any(
+                    signature in previous_tail + chunk
+                    for signature in ARCHIVE_SIGNATURES
+                ):
+                    raise HTTPException(
+                        status_code=400, detail="Archive uploads are not supported"
+                    )
+                previous_tail = chunk[-7:]
                 digest.update(chunk)
                 output.write(chunk)
         if not size or not header.strip():
