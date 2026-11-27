@@ -12,6 +12,7 @@ services:
     image: nirikshak-backend:latest
     container_name: nirikshak_backend
     restart: unless-stopped
+    mem_limit: 12g
     volumes:
       - data:/app/data
       - models:/app/models

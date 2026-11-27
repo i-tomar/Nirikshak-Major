@@ -1,5 +1,5 @@
 PYTHON ?= python3.11
-TARGETS := setup test check seed run evaluate real-eval security
+TARGETS := setup test check seed run evaluate real-eval security benchmark
 .PHONY: $(TARGETS)
 $(TARGETS):
 	$(PYTHON) scripts/tasks.py $@

@@ -11,7 +11,17 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 PYTHON = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-TARGETS = ("setup", "test", "check", "seed", "run", "evaluate", "real-eval", "security")
+TARGETS = (
+    "setup",
+    "test",
+    "check",
+    "seed",
+    "run",
+    "evaluate",
+    "real-eval",
+    "security",
+    "benchmark",
+)
 
 
 def run(*args: object, cwd: Path = ROOT) -> None:
@@ -50,6 +60,18 @@ def main() -> None:
         run(PYTHON, "-m", "pytest", "-q", "tests", cwd=BACKEND)
     elif target == "seed":
         run(PYTHON, "scripts/seed_demo.py", cwd=BACKEND)
+    elif target == "benchmark":
+        for rows in (100_000, 1_000_000):
+            for fmt in ("csv", "json", "xml"):
+                run(
+                    PYTHON,
+                    "scripts/benchmark_ingest.py",
+                    "--rows",
+                    rows,
+                    "--format",
+                    fmt,
+                    cwd=BACKEND,
+                )
     elif target == "run":
         run("docker", "compose", "up", "--build")
     elif target == "security":
