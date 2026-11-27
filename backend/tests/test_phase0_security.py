@@ -185,7 +185,8 @@ def test_investigation_duckdb_inputs_do_not_reflect_or_change_data(
         for name in ("transactions", "wallets", "network_observations")
     }
     for name, table in normalize_dataset([record]).items():
-        table.write_parquet(paths[name])
+        if name in paths:
+            table.write_parquet(paths[name])
     before = {path: sha256(path.read_bytes()).hexdigest() for path in paths.values()}
     monkeypatch.setattr(investigations, "has_normalized_data", lambda: True)
     monkeypatch.setattr(investigations, "get_parquet_paths", lambda: paths)

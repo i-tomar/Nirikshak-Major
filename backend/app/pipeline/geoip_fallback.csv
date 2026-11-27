@@ -1,0 +1,9 @@
+cidr,country,asn,as_org
+192.0.2.0/24,ZZ,AS0,Synthetic documentation network
+198.51.100.0/24,ZZ,AS0,Synthetic documentation network
+203.0.113.0/24,ZZ,AS0,Synthetic documentation network
+104.16.0.0/12,US,AS13335,Synthetic Cloudflare profile
+34.192.0.0/10,US,AS16509,Synthetic Amazon profile
+88.0.0.0/8,DE,AS24940,Synthetic Hetzner profile
+185.0.0.0/8,NL,AS9009,Synthetic VPN profile
+194.26.0.0/16,NL,AS204957,Synthetic Tor profile

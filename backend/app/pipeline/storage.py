@@ -28,12 +28,16 @@ def get_storage_dir(custom_dir: str | Path | None = None) -> Path:
 
 
 def get_parquet_paths(storage_dir: str | Path | None = None) -> dict[str, Path]:
-    """Get file paths for all three core analytical Parquet tables."""
+    """Get file paths for core and Phase 1 analytical Parquet tables."""
     sdir = get_storage_dir(storage_dir)
     return {
         "transactions": sdir / "transactions.parquet",
         "wallets": sdir / "wallets.parquet",
         "network_observations": sdir / "network_observations.parquet",
+        "tx_inputs": sdir / "tx_inputs.parquet",
+        "tx_outputs": sdir / "tx_outputs.parquet",
+        "rejected": sdir / "rejected.parquet",
+        "ip_enrichment": sdir / "ip_enrichment.parquet",
     }
 
 
@@ -58,7 +62,9 @@ def save_normalized_tables(
 def has_normalized_data(storage_dir: str | Path | None = None) -> bool:
     """Check if all required Parquet tables exist on disk and have content."""
     paths = get_parquet_paths(storage_dir)
-    for p in paths.values():
+    for p in (
+        paths[name] for name in ("transactions", "wallets", "network_observations")
+    ):
         if not p.exists() or p.stat().st_size == 0:
             return False
     return True
@@ -80,6 +86,8 @@ def get_duckdb_connection(
     paths = get_parquet_paths(storage_dir)
     con = duckdb.connect(":memory:")
     for name, path in paths.items():
+        if not path.exists():
+            continue
         con.read_parquet(str(path)).create_view(name)
     return con
 
@@ -197,9 +205,19 @@ def get_dataset_analytics_summary(
             "time_range": {"start": None, "end": None},
             "top_wallets_by_activity": [],
             "top_wallets_by_volume": [],
+            "geoip_sources": {},
         }
 
     t_start, t_end = get_time_range(storage_dir)
+    ip_path = get_parquet_paths(storage_dir)["ip_enrichment"]
+    geoip_sources: dict[str, int] = {}
+    if ip_path.exists():
+        with duckdb.connect() as ip_connection:
+            for source, count in ip_connection.execute(
+                "SELECT source, count(*) FROM read_parquet(?) GROUP BY source",
+                [str(ip_path)],
+            ).fetchall():
+                geoip_sources[str(source)] = int(count)
     return {
         "status": "ready",
         "transactions": get_transaction_count(storage_dir),
@@ -217,4 +235,5 @@ def get_dataset_analytics_summary(
         "top_wallets_by_volume": get_top_wallets_by_volume(
             limit=5, storage_dir=storage_dir
         ),
+        "geoip_sources": geoip_sources,
     }
